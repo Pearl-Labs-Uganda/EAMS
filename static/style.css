@@ -1,0 +1,147 @@
+/* RC CAR control panel — dark industrial instrument aesthetic.
+   Served offline from a Pi Zero: no external fonts, no assets. */
+
+:root {
+  --bg: #0d0f0e;
+  --panel: #161a18;
+  --edge: #2a312d;
+  --ink: #cfe3d6;
+  --dim: #5d6f64;
+  --accent: #ffb000;       /* amber instrument glow */
+  --ok: #46e08b;
+  --bad: #ff4444;
+  --mono: "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  height: 100%;
+  background:
+    radial-gradient(1200px 500px at 70% -10%, #17201b 0%, var(--bg) 60%);
+  color: var(--ink);
+  font-family: var(--mono);
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+/* ---------- banners ---------- */
+.banner {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  z-index: 20; padding: 6px 18px; font-weight: 700; letter-spacing: 2px;
+  border: 1px solid; font-size: 14px;
+}
+.banner.warn  { top: 6px;  color: var(--accent); border-color: var(--accent); background: #201700e6; }
+.banner.stall { top: 42px; color: var(--bad); border-color: var(--bad); background: #240b0be6; animation: blink 0.8s step-end infinite; }
+.banner.dead  { top: 80px; color: var(--dim); border-color: var(--dim); background: #101311e6; }
+.hidden { display: none; }
+@keyframes blink { 50% { border-color: transparent; } }
+
+#reset-btn {
+  margin-left: 12px; font: inherit; color: var(--bg); background: var(--bad);
+  border: 0; padding: 3px 14px; cursor: pointer; letter-spacing: 2px;
+}
+
+/* ---------- layout ---------- */
+#grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  height: 100%; padding: 10px; align-items: stretch;
+}
+.col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+#col-sensors { overflow-y: auto; }
+#col-stick { align-items: center; justify-content: center; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--accent);
+  padding: 8px 10px;
+}
+.card h2 {
+  font-size: 10px; letter-spacing: 3px; color: var(--dim); margin-bottom: 6px;
+}
+.card h2 small { letter-spacing: 1px; text-transform: none; }
+
+/* staleness: gray everything */
+#grid.stale .card { filter: grayscale(1) brightness(0.55); }
+
+/* ---------- ultrasonic bars ---------- */
+.us-row, .duty-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.lbl { width: 44px; font-size: 11px; color: var(--dim); }
+.val { width: 58px; text-align: right; font-size: 14px; color: var(--accent); }
+.bar-track {
+  flex: 1; height: 10px; background: #0a0c0b; border: 1px solid var(--edge);
+  position: relative; overflow: hidden;
+}
+.bar-fill {
+  height: 100%; width: 0%; background: linear-gradient(90deg, var(--bad), var(--accent) 40%, var(--ok));
+  transition: width 90ms linear;
+}
+
+/* ---------- IR dots ---------- */
+.ir-dots { display: flex; gap: 10px; justify-content: space-between; padding: 2px 4px; }
+.dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #0a0c0b; border: 1px solid var(--edge); position: relative;
+}
+.dot::after {
+  content: attr(data-bit); position: absolute; top: 20px; left: 50%;
+  transform: translateX(-50%); font-size: 9px; color: var(--dim);
+}
+.dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); border-color: var(--ok); }
+
+/* ---------- IMU ---------- */
+.imu-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; font-size: 10px; color: var(--dim); }
+.imu-grid b { color: var(--ink); font-weight: 400; }
+.tilt-wrap {
+  margin: 8px auto 2px; width: 70px; height: 70px; border-radius: 50%;
+  border: 1px solid var(--edge); position: relative;
+  background: radial-gradient(circle, #0a0c0b 0%, var(--panel) 100%);
+}
+.tilt-wrap::before, .tilt-wrap::after {
+  content: ""; position: absolute; background: var(--edge);
+}
+.tilt-wrap::before { left: 50%; top: 4px; bottom: 4px; width: 1px; }
+.tilt-wrap::after  { top: 50%; left: 4px; right: 4px; height: 1px; }
+#tilt-bubble {
+  position: absolute; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 10px var(--accent);
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  transition: left 80ms linear, top 80ms linear;
+}
+
+/* ---------- duty bars (bidirectional from center) ---------- */
+.duty-track {
+  flex: 1; height: 14px; background: #0a0c0b; border: 1px solid var(--edge);
+  position: relative;
+}
+.duty-track::before {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0;
+  width: 1px; background: var(--edge);
+}
+.duty-fill {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
+  background: var(--accent); transition: all 60ms linear;
+}
+.duty-fill.rev { background: #4aa3ff; }
+
+.flags { display: flex; gap: 6px; margin-top: 6px; }
+.flag {
+  font-size: 9px; letter-spacing: 2px; padding: 2px 8px;
+  border: 1px solid var(--edge); color: var(--dim);
+}
+.flag.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+#flag-ws.on { background: var(--ok); border-color: var(--ok); }
+
+/* ---------- joystick ---------- */
+#stick {
+  width: min(78vh, 92%); max-width: 420px; aspect-ratio: 1;
+  height: auto; touch-action: none;
+}
+
+/* portrait fallback (real use is landscape) */
+@media (orientation: portrait) {
+  #grid { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  #stick { width: min(45vh, 90vw); }
+}

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>RC CAR // CONTROL</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="conn-warning" class="banner warn hidden">⚠ TELEMETRY STALE — CHECK LINK</div>
+<div id="banners">
+  <div id="stall-banner" class="banner stall hidden">
+    STALL CUT <button id="reset-btn">RESET</button>
+  </div>
+  <div id="dead-banner" class="banner dead hidden">DEADMAN</div>
+</div>
+
+<main id="grid" class="stale">
+  <!-- left column: telemetry -->
+  <section class="col" id="col-sensors">
+    <div class="card">
+      <h2>RANGE</h2>
+      <div class="us-row">
+        <span class="lbl">FRONT</span>
+        <div class="bar-track"><div class="bar-fill" id="us-front-bar"></div></div>
+        <span class="val" id="us-front-val">—</span>
+      </div>
+      <div class="us-row">
+        <span class="lbl">REAR</span>
+        <div class="bar-track"><div class="bar-fill" id="us-rear-bar"></div></div>
+        <span class="val" id="us-rear-val">—</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>IR</h2>
+      <div class="ir-dots" id="ir-dots">
+        <span class="dot" data-bit="0"></span><span class="dot" data-bit="1"></span>
+        <span class="dot" data-bit="2"></span><span class="dot" data-bit="3"></span>
+        <span class="dot" data-bit="4"></span><span class="dot" data-bit="5"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>IMU</h2>
+      <div class="imu-grid">
+        <span>ax <b id="imu-ax">0.00</b>g</span>
+        <span>ay <b id="imu-ay">0.00</b>g</span>
+        <span>az <b id="imu-az">0.00</b>g</span>
+        <span>gx <b id="imu-gx">0.0</b>°/s</span>
+        <span>gy <b id="imu-gy">0.0</b>°/s</span>
+        <span>gz <b id="imu-gz">0.0</b>°/s</span>
+      </div>
+      <div class="tilt-wrap"><div id="tilt-bubble"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>DUTY <small>(applied by Pi)</small></h2>
+      <div class="duty-row">
+        <span class="lbl">L</span>
+        <div class="duty-track"><div class="duty-fill" id="duty-left"></div></div>
+      </div>
+      <div class="duty-row">
+        <span class="lbl">R</span>
+        <div class="duty-track"><div class="duty-fill" id="duty-right"></div></div>
+      </div>
+      <div class="flags">
+        <span id="flag-cap" class="flag">CAP</span>
+        <span id="flag-pad" class="flag">PAD</span>
+        <span id="flag-ws" class="flag">LINK</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- right column: joystick -->
+  <section class="col" id="col-stick">
+    <canvas id="stick" width="300" height="300"></canvas>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+[Unit]
+Description=RC car control server
+After=pigpiod.service network-online.target
+Requires=pigpiod.service
+
+[Service]
+Type=simple
+User=eams-pi
+WorkingDirectory=/home/eams-pi/rccar
+ExecStart=/home/eams-pi/rccar/.venv/bin/python server.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
