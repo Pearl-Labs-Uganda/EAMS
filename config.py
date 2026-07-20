@@ -12,12 +12,12 @@ HTTP_HOST = "0.0.0.0"
 HTTP_PORT = 8080
 
 # ------------------------------------------------------------- motor pins ---
-ENA = 12          # left channel PWM  (hardware-PWM capable, but we use pigpio soft PWM)
-ENB = 13          # right channel PWM
-IN1 = 8           # left direction
-IN2 = 27           # left direction
-IN3 = 24          # right direction
-IN4 = 25          # right direction
+ENA = 13          # left channel PWM  (hardware-PWM capable, but we use pigpio soft PWM)
+ENB = 12          # right channel PWM
+IN1 = 25           # left direction
+IN2 = 24           # left direction
+IN3 = 8          # right direction
+IN4 = 27          # right direction
 
 PWM_FREQ_HZ = 2000        # §5: 1–5 kHz allowed; 2 kHz chosen.
 
