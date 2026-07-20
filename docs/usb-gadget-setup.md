@@ -158,3 +158,7 @@ Then `ssh pi` and `rsync -avz --delete rccar/ pi:/home/eams-pi/rccar/`.
 - **autoconnect-priority** — Which NM profile wins when two profiles claim the same interface. Higher number wins.
 - **never-default** — Tells NM not to use this connection as the default route for general internet traffic.
 - **LOWER_UP** — Flag in `ip link` meaning the physical link is live (cable plugged in and the other end responding).
+
+
+
+`ssh-keygen -R 172.20.10.2`
