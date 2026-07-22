@@ -1,13 +1,13 @@
 [Unit]
 Description=RC car control server
-After=pigpiod.service network-online.target
-Requires=pigpiod.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=eams-pi
-WorkingDirectory=/home/eams-pi/rccar
-ExecStart=/home/eams-pi/rccar/.venv/bin/python server.py
+User=jetson
+WorkingDirectory=/home/jetson/rccar
+ExecStart=/home/jetson/rccar/.venv/bin/python server.py
 Restart=on-failure
 RestartSec=2
 

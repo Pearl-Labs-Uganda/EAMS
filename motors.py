@@ -28,7 +28,7 @@ class MotorThread(threading.Thread):
         self.pi = pi
         self.shared = shared          # sensor thread's latest-value dict
         self.lock = lock
-        self._stop = threading.Event()
+        self._stop_evt = threading.Event()
 
         # Command state (written by socket thread via set_command/reset)
         self._cmd_lock = threading.Lock()
@@ -91,11 +91,11 @@ class MotorThread(threading.Thread):
         log.info("stall latch cleared by client reset")
 
     def stop(self):
-        self._stop.set()
+        self._stop_evt.set()
 
     def shutdown(self):
         """Every exit path lands here (atexit / signals / exceptions)."""
-        self._stop.set()
+        self._stop_evt.set()
         self._all_stop()
 
     # ------------------------------------------------------------------- GPIO
@@ -145,7 +145,7 @@ class MotorThread(threading.Thread):
         dt = 1.0 / config.MOTOR_LOOP_HZ
         max_step = dt / config.SLEW_FULL_SCALE_S     # slew: full scale in ~200 ms
         try:
-            while not self._stop.is_set():
+            while not self._stop_evt.is_set():
                 now = time.monotonic()
                 with self._cmd_lock:
                     tgt = {"L": self._cmd_left, "R": self._cmd_right}
