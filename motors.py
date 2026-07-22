@@ -5,8 +5,7 @@ server-side, inside the 50 Hz loop. The client cannot bypass any of them.
 
 Per-channel pipeline each tick, in order:
   1. deadman        (no packet for DEADMAN_S -> target 0)
-  2. stall latch    (latched stall -> target 0 until reset;
-                     SKIPPED ENTIRELY if config.STALL_GUARD_ENABLED is False)
+  2. stall latch    (latched stall -> target 0 until reset)
   3. slew limit     (ramp applied duty toward target, full scale in ~200 ms)
   4. zero-cross     (sign flip -> ZERO_CROSS_COAST_S of coast first)
   5. duty cap       (hard clamp at DUTY_CAP, applied LAST)
@@ -54,7 +53,7 @@ class MotorThread(threading.Thread):
 
         self._setup_pins()
         self._all_stop()              # §5 startup state: zero before socket opens
-
+        
         if not config.STALL_GUARD_ENABLED:
             log.warning("STALL GUARD DISABLED — no stall protection. "
                         "Wheels off the ground only.")
@@ -69,6 +68,20 @@ class MotorThread(threading.Thread):
             self._cmd_left = left
             self._cmd_right = right
             self._last_cmd_time = time.monotonic()
+
+    def new_controller(self):
+        """Control changed hands (take / release / disconnect).
+
+        Forget the previous controller's seq counter — app.js restarts its
+        counter at 0 on every page load, and without this reset every packet
+        from the new controller is rejected as out-of-order and the deadman
+        latches forever. Also zero the pending command so nothing from the
+        old controller carries over; the deadman covers the handover gap.
+        """
+        with self._cmd_lock:
+            self._last_seq = -1
+            self._cmd_left = 0.0
+            self._cmd_right = 0.0
 
     def reset(self):
         """Explicit client reset: clears a latched stall."""
