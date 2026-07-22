@@ -72,8 +72,10 @@
     </div>
   </section>
 
-  <!-- right column: joystick -->
+  <!-- right column: control switch + joystick -->
   <section class="col" id="col-stick">
+    <!-- one driver at a time; grayed while someone else holds control -->
+    <button id="ctrl-btn">TAKE CONTROL</button>
     <canvas id="stick" width="300" height="300"></canvas>
   </section>
 </main>

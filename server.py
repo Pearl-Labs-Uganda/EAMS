@@ -8,6 +8,12 @@ Threads:
 The socket thread never writes GPIO and never reads sensors directly:
 it reads `shared` and posts commands to the motor thread.
 
+Control ownership: any number of clients may connect and watch telemetry,
+but at most ONE holds control at a time. A client must send {"type":"take"}
+to drive; {"type":"release"} (or disconnecting) gives control up. cmd
+packets from non-controllers are dropped server-side — the browser UI is
+convenience, not enforcement.
+
 --dry-run stubs pigpio so the whole stack runs on a laptop.
 """
 
@@ -90,6 +96,49 @@ shared = {}                   # latest sensor values
 lock = threading.Lock()
 motor_thread = None           # set in main()
 
+# --------------------------------------------------------- control ownership
+# At most one connection drives the car. _controller is the owning
+# connection's id, or None if control is up for grabs. Guarded by _ctrl_lock;
+# every take/release/disconnect transition also resets the motor thread's
+# seq counter via new_controller().
+_ctrl_lock = threading.Lock()
+_controller = None            # connection id of current controller, or None
+_next_conn_id = 0
+
+
+def _take_control(conn_id):
+    """Grant control iff nobody holds it. Returns True on success."""
+    global _controller
+    with _ctrl_lock:
+        if _controller is not None:
+            return False
+        _controller = conn_id
+    motor_thread.new_controller()
+    log.info("client %d took control", conn_id)
+    return True
+
+
+def _release_control(conn_id, reason):
+    """Release control iff conn_id holds it. Safe to call unconditionally."""
+    global _controller
+    with _ctrl_lock:
+        if _controller != conn_id:
+            return
+        _controller = None
+    motor_thread.new_controller()   # zero pending cmd; deadman covers the gap
+    log.info("client %d released control (%s)", conn_id, reason)
+
+
+def _has_control(conn_id):
+    with _ctrl_lock:
+        return _controller == conn_id
+
+
+def _control_state(conn_id):
+    with _ctrl_lock:
+        held = _controller is not None
+        return {"held": held, "mine": _controller == conn_id}
+
 
 @app.route("/")
 def index():
@@ -101,7 +150,7 @@ def static_files(path):
     return send_from_directory("static", path)
 
 
-def _telemetry_frame():
+def _telemetry_frame(conn_id):
     with lock:
         imu = shared.get("imu", {"ax": 0, "ay": 0, "az": 0,
                                  "gx": 0, "gy": 0, "gz": 0})
@@ -116,14 +165,16 @@ def _telemetry_frame():
         "motor": {"left": round(m.out_left, 3), "right": round(m.out_right, 3),
                   "capped": m.capped, "stall": m.stall},
         "dead": m.dead,
+        # per-client: is control held at all, and is it held by YOU
+        "ctrl": _control_state(conn_id),
     })
 
 
-def _telemetry_sender(ws, stop_evt):
+def _telemetry_sender(ws, stop_evt, conn_id):
     dt = 1.0 / config.TELEMETRY_HZ
     try:
         while not stop_evt.is_set():
-            ws.send(_telemetry_frame())
+            ws.send(_telemetry_frame(conn_id))
             time.sleep(dt)
     except Exception:                                   # noqa: BLE001
         pass                                            # socket closed
@@ -136,10 +187,15 @@ def _valid_axis(v):
 
 @sock.route("/ws")
 def ws_handler(ws):
-    log.info("client connected")
+    global _next_conn_id
+    with _ctrl_lock:
+        _next_conn_id += 1
+        conn_id = _next_conn_id
+    log.info("client %d connected (viewer — no control yet)", conn_id)
+
     stop_evt = threading.Event()
-    sender = threading.Thread(target=_telemetry_sender, args=(ws, stop_evt),
-                              daemon=True)
+    sender = threading.Thread(target=_telemetry_sender,
+                              args=(ws, stop_evt, conn_id), daemon=True)
     sender.start()
     try:
         while True:
@@ -152,8 +208,12 @@ def ws_handler(ws):
                 continue                                # drop, don't crash
             if not isinstance(msg, dict):
                 continue
+            mtype = msg.get("type")
 
-            if msg.get("type") == "cmd":
+            if mtype == "cmd":
+                # server-side enforcement: only the controller drives
+                if not _has_control(conn_id):
+                    continue
                 left, right, seq = msg.get("left"), msg.get("right"), msg.get("seq")
                 if not (_valid_axis(left) and _valid_axis(right)
                         and isinstance(seq, int)):
@@ -161,11 +221,21 @@ def ws_handler(ws):
                 left = max(-1.0, min(1.0, float(left)))
                 right = max(-1.0, min(1.0, float(right)))
                 motor_thread.set_command(left, right, seq)
-            elif msg.get("type") == "reset":
-                motor_thread.reset()
+            elif mtype == "take":
+                if not _take_control(conn_id):
+                    log.info("client %d asked for control — already held",
+                             conn_id)
+            elif mtype == "release":
+                _release_control(conn_id, "released by client")
+            elif mtype == "reset":
+                # reset only from the controller — a viewer must not clear
+                # a stall latch on someone else's behalf
+                if _has_control(conn_id):
+                    motor_thread.reset()
     finally:
         stop_evt.set()
-        log.info("client disconnected — deadman will zero motors")
+        _release_control(conn_id, "disconnect")        # frees the switch
+        log.info("client %d disconnected — deadman will zero motors", conn_id)
 
 
 # ------------------------------------------------------------------- main ---

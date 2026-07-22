@@ -3,6 +3,10 @@
    - sends {"type":"cmd",left,right,seq} at 20 Hz, including zeros
    - renders merged 20 Hz telemetry; Pi ships raw, we scale here
    - staleness gray-out, STALL/DEADMAN banners, WS auto-reconnect w/ backoff
+   - control switch: many viewers, ONE driver. Must send {"type":"take"} to
+     drive; {"type":"release"} gives it up. The button grays out while
+     someone else holds control and ungrays the moment they release or
+     disconnect. Enforcement is SERVER-side; this UI is convenience only.
 */
 "use strict";
 
@@ -14,12 +18,17 @@ const ACC_SCALE = 16384, GYR_SCALE = 131;
 
 // ---------------------------------------------------------------- websocket
 let ws = null, wsOpen = false, backoff = 500;
+// control state, driven by telemetry (f.ctrl): held = anyone has it,
+// mine = this connection has it
+let ctrlMine = false, ctrlHeld = false;
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => { wsOpen = true; backoff = 500; setFlag("flag-ws", true); };
   ws.onclose = () => {
     wsOpen = false; setFlag("flag-ws", false);
+    ctrlMine = false; ctrlHeld = false;   // server releases us on disconnect
+    updateCtrlBtn();
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 8000);
   };
@@ -103,6 +112,9 @@ function mix(x, y) {
 }
 
 setInterval(() => {
+  // only the controller streams commands; viewers stay silent so the
+  // server's deadman logic sees exactly one talker
+  if (!ctrlMine) return;
   const pad = readPad();
   const x = pad && (pad.x || pad.y) ? pad.x : stickX;
   const y = pad && (pad.x || pad.y) ? pad.y : stickY;
@@ -114,6 +126,34 @@ setInterval(() => {
 
 document.getElementById("reset-btn").addEventListener("click", () => {
   if (wsOpen) ws.send(JSON.stringify({ type: "reset" }));
+});
+
+// ---------------------------------------------------------- control switch
+// three states:
+//   mine            -> green  "RELEASE"        (click gives control up)
+//   free (not held) -> amber  "TAKE CONTROL"   (click requests it)
+//   held by other   -> grayed "IN USE"         (disabled until they release)
+const ctrlBtn = document.getElementById("ctrl-btn");
+
+function updateCtrlBtn() {
+  ctrlBtn.classList.toggle("mine", ctrlMine);
+  ctrlBtn.classList.toggle("held", ctrlHeld && !ctrlMine);
+  ctrlBtn.disabled = ctrlHeld && !ctrlMine;
+  ctrlBtn.textContent = ctrlMine ? "RELEASE" :
+                        ctrlHeld ? "IN USE" : "TAKE CONTROL";
+}
+updateCtrlBtn();
+
+ctrlBtn.addEventListener("click", () => {
+  if (!wsOpen) return;
+  if (ctrlMine) {
+    // drop the stick before letting go, so no stale command lingers
+    stickX = 0; stickY = 0; drawStick();
+    ws.send(JSON.stringify({ type: "release" }));
+  } else if (!ctrlHeld) {
+    ws.send(JSON.stringify({ type: "take" }));
+  }
+  // actual state lands via the next telemetry frame (f.ctrl)
 });
 
 // ---------------------------------------------------------------- render
@@ -168,6 +208,14 @@ function render(f) {
 
   $("stall-banner").classList.toggle("hidden", !f.motor.stall);
   $("dead-banner").classList.toggle("hidden", !f.dead);
+
+  // control switch state comes from the server, never assumed locally —
+  // this is what ungrays the button for everyone when control is released
+  if (f.ctrl) {
+    ctrlMine = !!f.ctrl.mine;
+    ctrlHeld = !!f.ctrl.held;
+    updateCtrlBtn();
+  }
 }
 
 // staleness check

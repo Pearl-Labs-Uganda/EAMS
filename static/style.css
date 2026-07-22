@@ -134,6 +134,22 @@ html, body {
 .flag.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 #flag-ws.on { background: var(--ok); border-color: var(--ok); }
 
+/* ---------- control switch ---------- */
+/* free: amber TAKE CONTROL | mine: green RELEASE | held by other: grayed IN USE */
+#ctrl-btn {
+  font: inherit; font-size: 13px; font-weight: 700; letter-spacing: 3px;
+  padding: 10px 26px; margin-bottom: 10px; cursor: pointer;
+  color: var(--accent); background: #201700;
+  border: 1px solid var(--accent);
+}
+#ctrl-btn.mine {
+  color: var(--bg); background: var(--ok); border-color: var(--ok);
+}
+#ctrl-btn.held {
+  color: var(--dim); background: #101311; border-color: var(--edge);
+  cursor: not-allowed;
+}
+
 /* ---------- joystick ---------- */
 #stick {
   width: min(78vh, 92%); max-width: 420px; aspect-ratio: 1;
