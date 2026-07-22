@@ -1,6 +1,6 @@
 # RC Car — Codebase to Running Server on the Pi
 
-**Date:** 16 July 2026
+**Date:** 16 July 2026 (updated 20 July 2026)
 **Distilled from:** RC Car Project — Progress Report & Replication Guide
 
 ---
@@ -15,7 +15,7 @@ The governing constraint: **two motors per L298N channel means stall current (~2
 
 ## 2. Where we got to
 
-Server running on real hardware. Web app loads, WebSocket streams telemetry, and **the safety layer is verified working** — deadman trips on client silence, stall latches and clears on RESET.
+Car driven under power. Web app loads, WebSocket streams telemetry, and **the safety layer is verified working** — deadman trips on client silence, and the stall latch/RESET path was verified before the guard was disabled (see below).
 
 | Component | Status |
 |---|---|
@@ -27,9 +27,10 @@ Server running on real hardware. Web app loads, WebSocket streams telemetry, and
 | I²C enabled | ✅ |
 | Server up, web app loads, WebSocket connects | ✅ |
 | Deadman / stall latch / reset verified | ✅ |
-| MPU6050 responding | ⚠ **not yet** — see §5 |
+| Motors powered | ✅ |
+| **Car driven under power** | ✅ |
+| MPU6050 installed | ⬜ **deferred by decision** — driving with `STALL_GUARD_ENABLED = False`, see §5 |
 | systemd unit installed | ⬜ not yet |
-| Motors ever powered | ⬜ not yet |
 
 ### Platforms
 - **Pi:** Raspberry Pi OS Trixie (Debian 13), kernel 6.18, Python 3.13, user `eams-pi`, `172.20.10.2` (phone hotspot).
@@ -132,9 +133,9 @@ Installed: flask 3.1.3, flask-sock 0.7.0, pigpio 1.78.
 ```bash
 sudo raspi-config nonint do_i2c 0     # 0 = on
 sudo apt install -y i2c-tools
-i2cdetect -y 1                        # expect 0x68
+i2cdetect -y 1                        # expect 0x68 IF the IMU is fitted
 ```
-*Objective:* bring up the I²C bus for the MPU6050 and confirm the chip answers.
+*Objective:* bring up the I²C bus for the MPU6050 and confirm the chip answers. **On the current build the IMU is not installed**, so `0x68` will be absent and the software runs with `STALL_GUARD_ENABLED = False` (see §5). Enable the bus anyway so the IMU can be added later without re-imaging.
 
 ### 3.6 First run — wheels off the ground
 
@@ -152,18 +153,20 @@ Open `http://172.20.10.2:8080` — **`http://`, explicitly.**
 | `Running on http://172.20.10.2:8080` + 200s for `/`, `app.js`, `style.css` | Server up, app served | ✅ |
 | `client connected` | WebSocket handshake worked, telemetry streaming | ✅ |
 | `DEADMAN tripped: no command for 300 ms` | Client went quiet (tab backgrounded, disconnect) | ✅ **expected — this is the safety net working** |
-| `STALL cut … awaiting client reset` / `stall latch cleared by client reset` | Duty commanded, no IMU motion for 1 s → cut and latch. RESET clears it | ⚠ correct behaviour, but firing because the IMU is dead |
-| `MPU6050 init failed ('I2C write failed')` | IMU unreachable over I²C | ⚠ **open item** |
+| `STALL cut … awaiting client reset` / `stall latch cleared by client reset` | Duty commanded, no IMU motion for 1 s → cut and latch. RESET clears it | ⚠ historical — seen with the guard on and no IMU; guard now off (§5), so this no longer fires |
+| `MPU6050 init failed ('I2C write failed')` | IMU not installed; sensor thread ships zeros for the IMU | ℹ expected — IMU deferred (§5) |
 | `Bad HTTP/0.9 request type ('\x16\x03\x01…')` spam | A browser tried **https://** against a plain-HTTP server. `\x16\x03\x01` is a TLS handshake | ✅ harmless, ignore |
 | `client disconnected — deadman will zero motors` | Clean disconnect path | ✅ |
 
-**Bottom line:** the repeated stall trips are *correct* given a dead IMU. The safety layer refuses to run motors it can't confirm are moving. That's the design working, not a bug.
+**Bottom line:** the stall trips that appeared on the first run were *correct* given an absent IMU — the safety layer refused to run motors it couldn't confirm were moving. Because the IMU is not installed, the stall guard was then disabled so the car could be driven. With the guard off, the deadman, duty cap, slew limit, and zero-cross coast remain; the stall/thermal cutoff does not. See §5.
 
 ---
 
 ## 5. To do
 
-1. **Fix the IMU.** If `i2cdetect -y 1` doesn't show `0x68`: check MPU6050 wiring — VCC to 3.3 V rail per design, SDA→GPIO2, SCL→GPIO3, common ground. Stall trips stop once it answers.
+1. **IMU — deferred by decision.** The MPU6050 is not installed and the car is driven with `STALL_GUARD_ENABLED = False`. This is the accepted operating state, not an open bug.
+   ⚠ **Accepted risk:** the stall/thermal cutoff — one of the mandatory §5 protections in the original design — is inactive. On the paralleled-motor L298N, a prolonged stall is no longer auto-cut; only the 55 % duty cap keeps it within thermal limits. Keep runs short, watch the heatsink, and prioritise measuring real stall current (below).
+   If/when the IMU is fitted (VCC to 3.3 V rail per design, SDA→GPIO2, SCL→GPIO3, common ground; then `i2cdetect -y 1` → expect `0x68`), set `STALL_GUARD_ENABLED = True` to restore stall protection.
 
 2. **Install the systemd unit.** `rccar.service` was written for user `pi`; fix three lines first:
    ```ini

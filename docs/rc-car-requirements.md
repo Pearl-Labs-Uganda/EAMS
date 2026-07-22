@@ -45,30 +45,32 @@ The build has one L298N by decision. Therefore **the software is the protection*
 
 ## 3. GPIO Assignment (BCM numbering)
 
+**As-built (updated 20 July 2026):** the table below now matches `config.py`, which is the **authoritative** source of truth for pin assignments. The original brief specified different numbers; the values here are the ones actually wired and driven.
+
 | Function | GPIO | Direction | Notes |
 |---|---|---|---|
-| ENA (left channel PWM) | 12 | out | Hardware-PWM capable |
-| ENB (right channel PWM) | 13 | out | Hardware-PWM capable |
-| IN1 (left) | 5 | out | |
-| IN2 (left) | 6 | out | |
-| IN3 (right) | 16 | out | |
-| IN4 (right) | 26 | out | |
+| ENA (left channel PWM) | 13 | out | Hardware-PWM capable; driven as pigpio soft PWM |
+| ENB (right channel PWM) | 12 | out | Hardware-PWM capable; driven as pigpio soft PWM |
+| IN1 (left) | 25 | out | |
+| IN2 (left) | 24 | out | |
+| IN3 (right) | 8 | out | |
+| IN4 (right) | 27 | out | |
 | US-100 #1 TRIG (front) | 23 | out | |
-| US-100 #1 ECHO (front) | 24 | in | **Needs 5 V→3.3 V divider** |
-| US-100 #2 TRIG (rear) | 27 | out | |
+| US-100 #1 ECHO (front) | 7 | in | **Needs 5 V→3.3 V divider** |
+| US-100 #2 TRIG (rear) | 17 | out | |
 | US-100 #2 ECHO (rear) | 22 | in | **Needs 5 V→3.3 V divider** |
-| IR 0 | 4 | in | Divider if module runs at 5 V |
-| IR 1 | 17 | in | " |
-| IR 2 | 25 | in | " |
-| IR 3 | 20 | in | " |
-| IR 4 | 21 | in | " |
-| IR 5 | 7 | in | " |
-| MPU6050 SDA | 2 | I²C | |
-| MPU6050 SCL | 3 | I²C | |
+| IR 0 | 5 | in | Divider if module runs at 5 V |
+| IR 1 | 6 | in | " |
+| IR 2 | 16 | in | " |
+| IR 3 | 19 | in | " |
+| IR 4 | 26 | in | " |
+| IR 5 | 21 | in | " |
+| MPU6050 SDA | 2 | I²C | IMU not currently installed — see state docs |
+| MPU6050 SCL | 3 | I²C | IMU not currently installed — see state docs |
 
 18 pins used. GPIO 14/15 (UART) left free. Separate TRIG per ultrasonic is required — they must fire alternately, not together.
 
-All pin numbers live in a single `config.py`. No magic numbers anywhere else.
+All pin numbers live in a single `config.py`. No magic numbers anywhere else. **If this table and `config.py` ever disagree, `config.py` wins.**
 
 ---
 
