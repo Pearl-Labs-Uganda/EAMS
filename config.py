@@ -12,12 +12,12 @@ HTTP_PORT = 8080
 # ------------------------------------------------------------- motor pins ---
 # ENA/ENB must be PWM-capable Jetson header pins. Configure them for PWM with
 # Jetson-IO / pinmux tooling before expecting PWM at the header.
-ENA = 33          # left channel PWM
-ENB = 32          # right channel PWM
-IN1 = 22          # left direction
-IN2 = 18          # left direction
-IN3 = 24          # right direction
-IN4 = 13          # right direction
+ENA = 32          # left channel PWM
+ENB = 33          # right channel PWM
+IN1 = 11          # left direction
+IN2 = 13          # left direction
+IN3 = 15          # right direction
+IN4 = 16          # right direction
 
 PWM_FREQ_HZ = 2000
 
@@ -37,12 +37,12 @@ MOTOR_LOOP_HZ = 50
 STALL_GUARD_ENABLED = True
 
 # ------------------------------------------------------------ sensor pins ---
-US_FRONT_TRIG = 16
-US_FRONT_ECHO = 26       # 5 V -> 3.3 V divider REQUIRED
-US_REAR_TRIG = 11
-US_REAR_ECHO = 15        # 5 V -> 3.3 V divider REQUIRED
+US_FRONT_TRIG = 18
+US_FRONT_ECHO = 22       # 5 V -> 3.3 V divider REQUIRED
+US_REAR_TRIG = 24
+US_REAR_ECHO = 26        # 5 V -> 3.3 V divider REQUIRED
 
-IR_PINS = [29, 31, 36, 35, 37, 40]
+IR_PINS = [29, 31, 36, 37, 12, 38]
 
 # Jetson 40-pin header I2C bus. MPU6050 SDA/SCL go to physical pins 3/5.
 I2C_BUS = 1

@@ -47,17 +47,17 @@ positions.
 
 | Function | Jetson BOARD pin | Direction | Notes |
 |---|---:|---|---|
-| ENA left PWM | 33 | out/PWM | Jetson pinmux must enable PWM |
-| ENB right PWM | 32 | out/PWM | Jetson pinmux must enable PWM |
-| IN1 left | 22 | out | L298N direction |
-| IN2 left | 18 | out | L298N direction |
-| IN3 right | 24 | out | L298N direction |
-| IN4 right | 13 | out | L298N direction |
-| US front TRIG | 16 | out | |
-| US front ECHO | 26 | in | 5 V to 3.3 V divider required |
-| US rear TRIG | 11 | out | |
-| US rear ECHO | 15 | in | 5 V to 3.3 V divider required |
-| IR 0..5 | 29,31,36,35,37,40 | in | Dividers required if modules output 5 V |
+| ENA left PWM | 32 | out/PWM | Jetson pinmux must enable PWM |
+| ENB right PWM | 33 | out/PWM | Jetson pinmux must enable PWM |
+| IN1 left | 11 | out | L298N direction |
+| IN2 left | 13 | out | L298N direction |
+| IN3 right | 15 | out | L298N direction |
+| IN4 right | 16 | out | L298N direction |
+| US front TRIG | 18 | out | |
+| US front ECHO | 22 | in | 5 V to 3.3 V divider required |
+| US rear TRIG | 24 | out | |
+| US rear ECHO | 26 | in | 5 V to 3.3 V divider required |
+| IR 0..5 | 29,31,36,37,12,38 | in | Dividers required if modules output 5 V |
 | MPU6050 SDA/SCL | 3/5 | I2C | Expect `0x68` on bus 1 |
 
 ## Run
@@ -83,7 +83,7 @@ Open `http://<jetson-ip>:8080`.
 2. Confirm L298N 5 V regulator jumper is removed.
 3. Confirm all 5 V sensor outputs are level shifted before reaching the Jetson.
 4. Confirm `i2cdetect -y 1` shows the MPU6050 at `0x68`.
-5. Verify PWM appears on BOARD pins 33 and 32.
+5. Verify PWM appears on BOARD pins 32 and 33.
 6. Verify the deadman: take control, command motion, close the tab, and confirm wheels stop within 300 ms.
 7. Verify direction mapping before the car touches the floor.
 

@@ -38,15 +38,15 @@ header positions, not Raspberry Pi BCM GPIO numbers.
 
 | Function | BOARD pin |
 |---|---:|
-| ENA left PWM | 33 |
-| ENB right PWM | 32 |
-| IN1 left | 22 |
-| IN2 left | 18 |
-| IN3 right | 24 |
-| IN4 right | 13 |
-| US front TRIG/ECHO | 16 / 26 |
-| US rear TRIG/ECHO | 11 / 15 |
-| IR 0..5 | 29, 31, 36, 35, 37, 40 |
+| ENA left PWM | 32 |
+| ENB right PWM | 33 |
+| IN1 left | 11 |
+| IN2 left | 13 |
+| IN3 right | 15 |
+| IN4 right | 16 |
+| US front TRIG/ECHO | 18 / 22 |
+| US rear TRIG/ECHO | 24 / 26 |
+| IR 0..5 | 29, 31, 36, 37, 12, 38 |
 | MPU6050 SDA/SCL | 3 / 5 |
 
 Ultrasonic ECHO and any 5 V IR outputs must be level shifted to 3.3 V before
@@ -54,7 +54,7 @@ they touch the Jetson header.
 
 ## PWM
 
-BOARD pins 33 and 32 must be configured as PWM outputs with Jetson-IO / pinmux
+BOARD pins 32 and 33 must be configured as PWM outputs with Jetson-IO / pinmux
 tooling for your JetPack image. If PWM is unavailable or unstable on the header,
 use an external PCA9685 PWM board and adapt `hardware.py` for it.
 
@@ -106,7 +106,7 @@ journalctl -u rccar -f
 2. Confirm the L298N 5 V regulator jumper is removed.
 3. Confirm all 5 V sensor outputs are level shifted.
 4. Confirm I2C sees the MPU6050 at `0x68`.
-5. Confirm PWM appears on BOARD pins 33 and 32.
+5. Confirm PWM appears on BOARD pins 32 and 33.
 6. Take control in the browser and command a small movement.
 7. Close the browser tab and confirm the deadman stops the wheels within 300 ms.
 8. Verify left/right and forward/reverse mapping before floor driving.
