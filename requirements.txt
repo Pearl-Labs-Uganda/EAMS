@@ -1,3 +1,4 @@
 flask>=3.0
 flask-sock>=0.7
-pigpio>=1.78
+Jetson.GPIO>=2.1
+smbus2>=0.4

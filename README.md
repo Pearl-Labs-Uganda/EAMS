@@ -1,111 +1,99 @@
-# RC Car — Manual Control + Telemetry
+# RC Car - Jetson Orin Nano Control + Telemetry
 
-4-wheel differential drive (TT motors, one L298N), Pi Zero 2 W, browser control
-over a single WebSocket. Display + manual control only. No autonomy.
+4-wheel differential-drive RC car using a Jetson Orin Nano, one L298N, browser
+manual control, and live telemetry over a WebSocket.
 
-**Read this first:** two motors are paralleled per L298N channel. Stall current
-(~2–3 A/ch) exceeds the L298N's realistic rating — **the software is the thermal
-protection**. All guards live in `motors.py`, tuned in `config.py`. Do not raise
-`DUTY_CAP` (0.55) until stall current is actually measured (see Open Items).
+## Important Safety Note
+
+Two TT motors are paralleled per L298N channel. Stall current can exceed the
+L298N's realistic thermal limits, so the server-side motor safety layer is not
+optional: duty cap, slew limit, zero-cross coast, deadman, and stall cutoff all
+live in `motors.py` and are tuned in `config.py`.
+
+Keep the car on blocks until the pin map, PWM output, direction mapping,
+deadman, and stall guard have all been verified.
+
+## Jetson Dependencies
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip i2c-tools
+sudo usermod -aG gpio,i2c $USER
+```
+
+Log out and back in after adding groups.
+
+Create the app environment:
+
+```bash
+cd ~/rccar
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+## PWM Setup
+
+`config.py` uses BOARD pins 33 and 32 for L298N `ENA` and `ENB`. These must be
+configured as PWM-capable header pins on the Jetson before motor speed control
+will work. Use NVIDIA Jetson-IO / pinmux tooling for your JetPack image.
+
+If you cannot get stable PWM on those pins, use an external PCA9685 PWM board
+instead of driving L298N enable pins directly from Jetson.GPIO.
 
 ## Wiring
 
-### Motors / L298N
-| L298N | Connects to |
-|---|---|
-| OUT1/OUT2 | Left pair (2 motors in parallel) |
-| OUT3/OUT4 | Right pair (2 motors in parallel) |
-| +12V | 3S pack + (direct) |
-| GND | Star ground at pack negative |
-| +5V (logic) | LM2596 5 V rail — **onboard 5 V jumper REMOVED** |
-| ENA / ENB | GPIO 12 / 13 |
-| IN1 IN2 IN3 IN4 | GPIO 5, 6, 16, 26 |
+Pin numbers below are Jetson.GPIO `BOARD` numbers: physical 40-pin header
+positions.
 
-Star ground at the pack negative. Motor return current must **not** pass
-through the Pi's ground pins.
+| Function | Jetson BOARD pin | Direction | Notes |
+|---|---:|---|---|
+| ENA left PWM | 32 | out/PWM | Jetson pinmux must enable PWM |
+| ENB right PWM | 33 | out/PWM | Jetson pinmux must enable PWM |
+| IN1 left | 11 | out | L298N direction |
+| IN2 left | 13 | out | L298N direction |
+| IN3 right | 15 | out | L298N direction |
+| IN4 right | 16 | out | L298N direction |
+| US front TRIG | 18 | out | |
+| US front ECHO | 22 | in | 5 V to 3.3 V divider required |
+| US rear TRIG | 24 | out | |
+| US rear ECHO | 26 | in | 5 V to 3.3 V divider required |
+| IR 0..5 | 29,31,36,37,12,38 | in | Dividers required if modules output 5 V |
+| MPU6050 SDA/SCL | 3/5 | I2C | Expect `0x68` on bus 1 |
 
-### Sensors (BCM pins)
-| Sensor | Pin(s) | Divider? |
-|---|---|---|
-| US front TRIG/ECHO | 23 / 24 | **ECHO: yes, 5 V→3.3 V** |
-| US rear TRIG/ECHO | 27 / 22 | **ECHO: yes, 5 V→3.3 V** |
-| IR 0–5 | 4, 17, 25, 20, 21, 7 | **Assumed 5 V modules → yes, all six** (unconfirmed — see Open Items) |
-| MPU6050 SDA/SCL | 2 / 3 | No (3.3 V I²C) |
+## Run
 
-Divider values: **1 kΩ (top) / 2 kΩ (bottom)** gives 5 V → 3.33 V. Any ratio
-near 1:2 with total ≥ 2 kΩ is fine.
+Laptop dry-run:
 
-## Deploy
-
-**On the Pi, once:**
+```bash
+python server.py --dry-run
 ```
-sudo apt update
-sudo apt install -y pigpio python3-pigpio python3-flask python3-venv
-sudo systemctl enable --now pigpiod
-sudo raspi-config nonint do_i2c 0      # enable I2C for the MPU6050
-```
-Verify IMU: `i2cdetect -y 1` → expect `0x68`.
-`pigpiod` must run with **default flags** (no `-t 0`).
 
-**Transfer from dev machine** (do `ssh-copy-id pi@raspberrypi.local` first):
-```
-rsync -avz --delete ./rccar/ pi@raspberrypi.local:/home/pi/rccar/
-```
-(`raspberrypi.local` needs mDNS; fall back to the IP.)
+On Jetson:
 
-**Python deps:**
-```
-ssh pi@raspberrypi.local
+```bash
 cd ~/rccar
-python3 -m venv --system-site-packages .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/python server.py
 ```
-`--system-site-packages` matters — it lets the venv see apt's `pigpio`.
 
-**Run manually (always do this first):**
-```
-cd ~/rccar && .venv/bin/python server.py
-```
-Wheels off the ground. Open `http://<pi-ip>:8080`.
+Open `http://<jetson-ip>:8080`.
 
-**Test with no hardware** (laptop): `python3 server.py --dry-run`
+## First-Run Checklist
 
-**Install as a service (only after manual run works):**
-```
+1. Put the car on blocks with wheels free.
+2. Confirm L298N 5 V regulator jumper is removed.
+3. Confirm all 5 V sensor outputs are level shifted before reaching the Jetson.
+4. Confirm `i2cdetect -y 1` shows the MPU6050 at `0x68`.
+5. Verify PWM appears on BOARD pins 32 and 33.
+6. Verify the deadman: take control, command motion, close the tab, and confirm wheels stop within 300 ms.
+7. Verify direction mapping before the car touches the floor.
+
+## systemd
+
+Edit `rccar.service` if your Jetson username is not `jetson`, then:
+
+```bash
 sudo cp ~/rccar/rccar.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now rccar
 journalctl -u rccar -f
 ```
-
-## First-run checklist
-1. Car on blocks, wheels free.
-2. Confirm L298N 5 V jumper is **removed**.
-3. Confirm dividers present on both ECHO pins.
-4. Logic rail only (motor rail disconnected) — web app loads, telemetry streams.
-5. Connect motor rail. Verify deadman: close the browser tab → wheels stop within 300 ms.
-6. Verify direction mapping before it ever touches the floor.
-
-## Networking
-`NETWORK_MODE` in `config.py`. Default `"lan"` (Pi joins your WiFi).
-For AP mode: `sudo apt install hostapd dnsmasq`, copy `setup/hostapd.conf` to
-`/etc/hostapd/`, `setup/dnsmasq.conf` to `/etc/dnsmasq.d/`, give wlan0 a static
-192.168.4.1, enable both services, set `NETWORK_MODE = "ap"`. Left **off** by default.
-
-If telemetry stutters over WiFi, set `TELEMETRY_HZ = 10` in `config.py`
-**before** touching the 20 Hz control rate.
-
-## Open items — verify, don't assume
-1. **Stall current is unmeasured.** `DUTY_CAP = 0.55` is an estimate. Measure:
-   hold one wheel, motor on 12 V, ammeter inline. If per-motor stall > ~1.5 A,
-   lower the cap. It's one obvious constant in `config.py`.
-2. **L298N CSA/CSB** may be grounded on your clone. If exposed, an overcurrent
-   auto-cut can be added later — `motors.py`'s loop is structured so a
-   current-sense check drops in beside the stall check.
-3. **IR logic voltage unconfirmed.** Wiring table assumes 5 V (dividers on all
-   six). If they're 3.3 V modules, dividers can be omitted.
-4. **Flyback diodes** on the L298N clone: assumed populated; visually check.
-5. **LM2596 clone rating:** expected load < 1 A (Pi ~600 mA peak + sensors),
-   probably fine — measure anyway.
-6. **3.3 V GPIO → L298N inputs** is marginal (V_IH ≈ 2.3 V). Usually works. If
-   direction control is erratic, suspect this before the code.
