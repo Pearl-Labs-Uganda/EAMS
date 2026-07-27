@@ -7,6 +7,8 @@ This report describes exactly what we have done so far, in order, so anyone can 
 
 **Status (20 July):** The car has been driven under power with this code. The MPU6050 IMU has **not** been installed — driving is done with the stall guard disabled (`STALL_GUARD_ENABLED = False`), which is now the accepted operating configuration, not a temporary state. See §7. The pin assignments in `config.py` are authoritative and supersede the original requirements table.
 
+> **Update (27 July 2026):** §1–§7 below describe the original **Raspberry Pi Zero 2 W / pigpio** build. The project has since **migrated to the NVIDIA Jetson Orin Nano** and added two simulators and a documentation system — see the new **§8** for current state. Where the Pi-era sections conflict with §8, the runtime code, or `project-brief.md`, the later material wins. `config.py` remains authoritative for pins (now Jetson BOARD numbering).
+
 ---
 
 ## 1. The Setup
@@ -249,6 +251,107 @@ To do:
    ```
 2. Measure real motor stall current; adjust `DUTY_CAP` in `config.py` if per-motor stall > ~1.5 A. This matters more now, since the duty cap is the primary thermal guard while the IMU is absent.
 3. Optional: add a non-IMU stall/overcurrent detector (e.g. L298N current-sense) so stall protection doesn't depend on fitting the IMU.
+
+---
+
+## 8. Jetson migration, simulators & documentation (27 July 2026)
+
+**Context:** everything above documents the **Raspberry Pi Zero 2 W / pigpio**
+build. Since then the project moved to the **NVIDIA Jetson Orin Nano** and we
+added two simulators plus a documentation system. This entry catches the logbook
+up. From here, `config.py` (Jetson BOARD numbering) is authoritative for pins and
+`project-brief.md` is the standing orientation doc.
+
+### 8.1 Platform migration: Pi Zero 2 W → Jetson Orin Nano
+- **Why:** the Jetson Orin Nano becomes the primary onboard computer for
+  perception/planning/control — the compute the autonomy goal needs, which the
+  Pi Zero couldn't provide.
+- **GPIO layer:** replaced `pigpio` with **`Jetson.GPIO` (BOARD numbering)** +
+  `smbus2`. `hardware.py` adapts the old pigpio-shaped surface (`set_mode`,
+  `write`, `read`, PWM, I²C) onto Jetson.GPIO so **`motors.py` / `sensors.py` and
+  the whole safety layer were reused unchanged**.
+- **Pins changed** from the Pi BCM assignments to Jetson BOARD pins: ENA 32,
+  ENB 33, IN1 11, IN2 13, IN3 15, IN4 16, US front 18/22, US rear 24/26, IR
+  29/31/36/37/12/38, MPU6050 on **I²C bus 1 @ `0x68`** (physical header pins 3/5).
+  **`config.py` is the source of truth**; the old requirements/README pin tables
+  (BCM) are superseded.
+- **Deps:** `requirements.txt` now pins `Jetson.GPIO` + `smbus2` (was pigpio).
+  No `pigpiod` daemon on Jetson, so `rccar.service` no longer declares
+  `After/Requires=pigpiod.service`.
+- **Docs:** `README.md` and `rc-car-deployment.md` were rewritten for Jetson
+  (user `jetson`, `/home/jetson/rccar`, `jetson-io` PWM setup). **Open Jetson
+  risk:** PWM on BOARD pins 32/33 must be enabled via pinmux/`jetson-io`; fall
+  back to an external PCA9685 if unstable.
+- **Carried-over accepted risk:** the MPU6050 is still not installed. On Jetson,
+  `config.py` ships `STALL_GUARD_ENABLED = True` (safe default), but with no IMU
+  that stall-cuts after 1 s and blocks driving — so wheels-off / driving bring-up
+  still needs it set `False`, leaving the **55 % duty cap as the only thermal
+  protection**. Keep runs short; a non-IMU stall detector is the mitigation to add.
+
+### 8.2 Simulator #1 — broad digital twin (`eams_simulator/`)
+- **Goal:** let the Jetson software stack be developed/validated before sensors
+  are wired, using realistic **stand-in data** rather than random values.
+- **Design:** one ground-truth `VehicleState` evolved by a **bicycle kinematic
+  model**; every sensor observes that shared state (so streams stay mutually
+  consistent). Async **master-tick scheduler** (300 Hz base divided to per-sensor
+  rates), merged-JSON publisher with stdout / JSONL / CSV / WebSocket sinks,
+  seeded RNG for reproducibility, pytest consistency tests (all pass).
+- **Sensors:** GPS, IMU, encoder, motor, battery, current, LiDAR, ultrasonic,
+  camera perception metadata — an **AV-scale** suite, broader than the current
+  car, aligned with the longer-term autonomy vision.
+
+### 8.3 Sensor-mapping analysis (finding)
+Checked the simulator's outputs against the **RL policy's 18 inputs**
+(`DifferentialCarAgent.CollectObservations`):
+- **Match:** local velocity, yaw rate, ultrasonic front/rear.
+- **Missing / mismatched:** the broad sim **omitted IR entirely** (6 of 18
+  inputs), had **no target/goal** (4 inputs), and emits ultrasonic in **cm** while
+  the policy expects **normalised 0..1**. `smoothedLeft/Right` are the policy's own
+  rate-limited action memory, not sensor data.
+- **Conclusion:** the broad simulator and the trained policy target *slightly
+  different robots* (AV-style vs the real minimal ultrasonic+IR car). This drove a
+  second, focused simulator.
+
+### 8.4 Simulator #2 — focused rover sim (`eams_rover_sim/`)
+- **Scope:** only the real car's suite — **IR ×6, ultrasonic (front/rear), IMU,
+  motor RPM/PWM, pose, current-with-stall-latch, camera metadata**.
+- **Reconciled the gaps:** added an **IR model** ordered `[FL, FR, RL, RR, L, R]`
+  to match the policy's observation order; ultrasonic emitted in **cm and
+  normalised 0..1** (policy-compatible).
+- **Architecture mirrors the real car:** background **SimThread** (only state
+  writer) + **Flask + flask-sock `/ws`** streaming merged frames at **20 Hz**,
+  same `take`/`release`/`cmd`/`reset` handshake. A controller's `(left,right)` is
+  converted to `(throttle,steer)` — inverse of the browser mixer — so it can drive
+  the simulated rover.
+- **Stall-detection hook:** current sensing exposes instant/avg/peak and a
+  **stall latch** (high current + no motion → latch). A scripted **wedged phase**
+  (~t=25–33 s) fires the latch at **t≈26 s** — prototypes the non-IMU stall
+  protection the real car still owes.
+- **Verified live:** viewer → take control → drive advances pose, motor duty caps
+  at 55 %, current spikes under load, and the front ultrasonic + camera pick up the
+  same obstacle together (streams consistent).
+- **Note:** `left/right_rpm` is *motor-shaft* RPM (gear ratio 48); IMU is SI units,
+  not raw MPU6050 counts, so this frame is a **superset** of the real telemetry,
+  not byte-identical to what today's `app.js` scales. A counts-mode toggle is a
+  small follow-up if drop-in browser compatibility is wanted.
+
+### 8.5 Documentation system
+Three-layer scheme so new chats/contributors don't start from scratch:
+- **Project instructions** (Claude Project settings) — short, stable, every-chat rules.
+- **`project-brief.md`** (new) — standing orientation: vision, phased roadmap,
+  hardware, code artifacts, tensions, near-term path.
+- **`rc-car-progress-report.md`** (this file) — the **logbook**, authoritative for
+  history; every meaningful change gets a dated entry like this one.
+- Older docs (`rc-car-requirements.md`, `usb-gadget-setup.md`) were marked
+  **historical / Pi-era** with a banner pointing here and to `project-brief.md`.
+
+### 8.6 Open items after this entry
+1. Enable/verify PWM on Jetson BOARD pins 32/33 (`jetson-io`), else PCA9685.
+2. Add a units **adapter** (normalise ultrasonic, IMU counts) + define a
+   **target/goal source** before the trained policy can consume a live feed.
+3. Decide whether to fit the MPU6050 or ship the current-sense stall detector
+   from `eams_rover_sim` onto the real car.
+4. Keep `project-brief.md` in sync as intent (esp. the phase framing) is confirmed.
 
 ---
 
