@@ -1,7 +1,7 @@
 /* RC car client.
    - touch joystick + Gamepad API -> same arcade mixer
    - sends {"type":"cmd",left,right,seq} at 20 Hz, including zeros
-   - renders merged 20 Hz telemetry; Pi ships raw, we scale here
+   - renders merged 20 Hz telemetry; Jetson ships raw, we scale here
    - staleness gray-out, STALL/DEADMAN banners, WS auto-reconnect w/ backoff
    - control switch: many viewers, ONE driver. Must send {"type":"take"} to
      drive; {"type":"release"} gives it up. The button grays out while

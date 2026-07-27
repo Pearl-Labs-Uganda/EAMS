@@ -1,5 +1,5 @@
 /* RC CAR control panel — dark industrial instrument aesthetic.
-   Served offline from a Pi Zero: no external fonts, no assets. */
+   Served offline from the Jetson: no external fonts, no assets. */
 
 :root {
   --bg: #0d0f0e;
