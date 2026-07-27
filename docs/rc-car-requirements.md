@@ -6,6 +6,30 @@
 
 ---
 
+> ## ⚠ HISTORICAL — original Pi-era brief (superseded)
+>
+> This document is the **original build brief** for the **Raspberry Pi Zero 2 W /
+> pigpio** version, kept for provenance. It is **no longer accurate for the
+> current build** in several ways:
+> - **Platform:** the project runs on the **NVIDIA Jetson Orin Nano** now
+>   (`Jetson.GPIO`, not pigpio). Ignore all pigpio / `pigpiod` / `raspi-config`
+>   steps here.
+> - **Pins:** the GPIO table in §3 is **BCM numbering for the Pi** and does **not**
+>   match the current `config.py` (Jetson **BOARD** numbering). **`config.py` is
+>   the only authoritative pin source.** See the wiring table in `README.md` /
+>   `rc-car-deployment.md`.
+> - **Non-goals (§13):** "no autonomy / obstacle avoidance / path planning"
+>   described *this manual-control phase only*. **Autonomy is now an explicit
+>   project goal** (natural-language navigation) — see `project-brief.md` for the
+>   phased roadmap and the ML-Agents work.
+>
+> For current orientation read **`project-brief.md`**; for history read
+> **`rc-car-progress-report.md`** (§8 onward covers the Jetson migration).
+> The §1 hardware inventory, §2 thermal-headroom constraint, and §5 safety-layer
+> spec below are still valid and remain the hard requirements.
+
+---
+
 ## 1. Hardware Inventory (fixed — do not propose changes)
 
 | Item | Qty | Notes |
@@ -45,7 +69,14 @@ The build has one L298N by decision. Therefore **the software is the protection*
 
 ## 3. GPIO Assignment (BCM numbering)
 
-**As-built (updated 20 July 2026):** the table below now matches `config.py`, which is the **authoritative** source of truth for pin assignments. The original brief specified different numbers; the values here are the ones actually wired and driven.
+**As-built (updated 20 July 2026):** the table below matched the **Pi** `config.py`
+(BCM numbering) at that time.
+
+> **⚠ Superseded (27 July 2026):** this BCM table is for the retired Pi build. The
+> current Jetson `config.py` uses **BOARD** numbering with different pins
+> (ENA 32, ENB 33, IN1 11, IN2 13, IN3 15, IN4 16, US 18/22 & 24/26, IR
+> 29/31/36/37/12/38, I²C bus 1). **`config.py` wins**; use the wiring tables in
+> `README.md` / `rc-car-deployment.md`.
 
 | Function | GPIO | Direction | Notes |
 |---|---|---|---|

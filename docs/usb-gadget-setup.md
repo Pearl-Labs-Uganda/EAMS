@@ -5,6 +5,21 @@
 
 ---
 
+> ## ⚠ HISTORICAL — Raspberry Pi only (does NOT apply to the Jetson)
+>
+> This entire procedure is **Pi-Zero-specific**: it uses `dtoverlay=dwc2` /
+> `g_ether` in `/boot/firmware/config.txt` + `cmdline.txt`, `raspi-config`-style
+> Pi boot config, and the `eams-pi` user. **None of that exists on the NVIDIA
+> Jetson Orin Nano**, which has a different USB device-mode mechanism. Do **not**
+> follow these steps on the Jetson.
+>
+> Kept for provenance (the Pi USB-gadget link, addresses `10.55.0.1/2`). If a
+> wired point-to-point link to the Jetson is wanted, it needs a separate,
+> Jetson-specific write-up — **not yet done** (open item). Current orientation:
+> `project-brief.md`; history: `rc-car-progress-report.md` §8.
+
+---
+
 ## 1. Where we were
 
 The Pi was reachable only over WiFi at `172.20.10.2`, on a phone hotspot shared with the dev laptop (`172.20.10.3`). This is the link used for `rsync` deploys, SSH, and the browser app on port 8080.
