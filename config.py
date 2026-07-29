@@ -44,6 +44,13 @@ US_REAR_ECHO = 26        # 5 V -> 3.3 V divider REQUIRED
 
 IR_PINS = [29, 31, 36, 37, 12, 38]
 
+# IR_PINS[i] is the pin wired to the sensor labelled IR_LABELS[i]. This is
+# also the observation order the trained policy expects — matches
+# DifferentialCarAgent.CollectObservations (FL, FR, RL, RR, L, R). Physical
+# wiring confirmed 27 Jul 2026; if the harness is ever re-crimped, update
+# either the pins list or the labels list so they stay parallel.
+IR_LABELS = ["FL", "FR", "RL", "RR", "L", "R"]
+
 # Jetson 40-pin header I2C bus. MPU6050 SDA/SCL go to physical pins 3/5.
 I2C_BUS = 1
 MPU6050_ADDR = 0x68
@@ -56,3 +63,27 @@ US_MAX_VALID_CM = 350
 # ---------------------------------------------------------------- protocol ---
 TELEMETRY_HZ = 20
 CMD_RATE_HZ = 20
+
+# ---------------------------------------------------------- policy / autonomy ---
+# Path (relative to server.py) of the trained ONNX policy exported from Unity
+# ML-Agents. The runner opens this once at boot; changing it requires a restart.
+POLICY_MODEL_PATH = "policies/DifferentialCarAgent-obstacles_v3.onnx"
+
+# Inference rate. Match CMD_RATE_HZ — running faster than the browser client
+# doesn't help because the motor safety loop rate-limits anyway.
+POLICY_HZ = 20
+
+# Observation normalisation constants MIRRORED from the Unity DifferentialCarAgent.
+# If the sim is retrained with different bounds, update these together with the
+# corresponding fields in DifferentialCarAgent.cs — the observation vector must
+# match training or the policy silently misbehaves.
+MAX_LINEAR_SPEED = 3.0        # m/s (Unity: maxLinearSpeed)
+MAX_ANGULAR_SPEED = 6.0       # rad/s (Unity: maxAngularSpeed)
+MAX_TARGET_DISTANCE = 20.0    # m (Unity: maxTargetDistance)
+ULTRASONIC_RANGE_M = 5.0      # m (Unity: ultrasonicRange)
+
+# Rate at which the policy runner smoothes its own action memory
+# (smoothedLeft / smoothedRight — the "controller-side memory" observations the
+# policy feeds back to itself). Same value as motorResponseRate in the ML-Agents
+# inspector; applied per policy tick at dt = 1/POLICY_HZ.
+MOTOR_RESPONSE_RATE = 6.0
