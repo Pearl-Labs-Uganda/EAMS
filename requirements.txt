@@ -2,3 +2,5 @@ flask>=3.0
 flask-sock>=0.7
 Jetson.GPIO>=2.1
 smbus2>=0.4
+onnxruntime>=1.17
+numpy>=1.24
