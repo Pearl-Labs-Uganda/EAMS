@@ -7,6 +7,9 @@
      drive; {"type":"release"} gives it up. The button grays out while
      someone else holds control and ungrays the moment they release or
      disconnect. Enforcement is SERVER-side; this UI is convenience only.
+   - AUTONOMY LAB: slide-out panel toggles sensor mode + motor output,
+     edits the dummy scenario and the policy target, engages/disengages
+     the policy, and shows a live observability panel.
 */
 "use strict";
 
@@ -34,10 +37,19 @@ function connect() {
   };
   ws.onerror = () => ws.close();
   ws.onmessage = (ev) => {
-    try { render(JSON.parse(ev.data)); } catch (_) {}
+    let f;
+    try { f = JSON.parse(ev.data); } catch (_) { return; }
+    if (f && f.type === "ack") { handleAck(f); return; }
+    render(f);
   };
 }
 connect();
+
+function wsSend(obj) {
+  if (wsOpen && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
 
 // ---------------------------------------------------------------- joystick
 const canvas = document.getElementById("stick");
@@ -119,13 +131,11 @@ setInterval(() => {
   const x = pad && (pad.x || pad.y) ? pad.x : stickX;
   const y = pad && (pad.x || pad.y) ? pad.y : stickY;
   const [left, right] = mix(x, y);
-  if (wsOpen && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "cmd", left, right, seq: seq++ }));
-  }
+  wsSend({ type: "cmd", left, right, seq: seq++ });
 }, 1000 / CMD_HZ);   // continuous, including zeros — silence fires the deadman
 
 document.getElementById("reset-btn").addEventListener("click", () => {
-  if (wsOpen) ws.send(JSON.stringify({ type: "reset" }));
+  wsSend({ type: "reset" });
 });
 
 // ---------------------------------------------------------- control switch
@@ -149,9 +159,9 @@ ctrlBtn.addEventListener("click", () => {
   if (ctrlMine) {
     // drop the stick before letting go, so no stale command lingers
     stickX = 0; stickY = 0; drawStick();
-    ws.send(JSON.stringify({ type: "release" }));
+    wsSend({ type: "release" });
   } else if (!ctrlHeld) {
-    ws.send(JSON.stringify({ type: "take" }));
+    wsSend({ type: "take" });
   }
   // actual state lands via the next telemetry frame (f.ctrl)
 });
@@ -185,7 +195,7 @@ function render(f) {
   usRow(f.us.front, "us-front-bar", "us-front-val");
   usRow(f.us.rear, "us-rear-bar", "us-rear-val");
 
-  document.querySelectorAll(".dot").forEach((d) => {
+  document.querySelectorAll("#ir-dots .dot").forEach((d) => {
     d.classList.toggle("on", !!(f.ir & (1 << +d.dataset.bit)));
   });
 
@@ -216,6 +226,27 @@ function render(f) {
     ctrlHeld = !!f.ctrl.held;
     updateCtrlBtn();
   }
+
+  // ---- mode / policy flag chips in the pilot page ---------------------
+  const sm = f.sensor_mode || "hardware";
+  const smFlag = $("flag-sensor");
+  smFlag.textContent = "SENS:" + (sm === "hardware" ? "HW" :
+                                  sm === "dummy_static" ? "STA" : "KIN");
+  smFlag.classList.toggle("dummy", sm !== "hardware");
+
+  const motorReal = !!f.motor.output_enabled;
+  const mFlag = $("flag-motor");
+  mFlag.textContent = "MTR:" + (motorReal ? "REAL" : "DUMMY");
+  mFlag.classList.toggle("dummy", !motorReal);
+
+  const pol = f.policy;
+  const pFlag = $("flag-policy");
+  const engaged = !!(pol && pol.engaged);
+  pFlag.textContent = "POL:" + (engaged ? "ON" : "OFF");
+  pFlag.classList.toggle("on", engaged);
+
+  // ---- Autonomy Lab -----------------------------------------------------
+  renderLab(f);
 }
 
 // staleness check
@@ -224,3 +255,242 @@ setInterval(() => {
   $("grid").classList.toggle("stale", stale);
   $("conn-warning").classList.toggle("hidden", !stale);
 }, 200);
+
+// =====================================================================
+// AUTONOMY LAB
+// =====================================================================
+const labPanel = $("lab-panel");
+$("lab-open").addEventListener("click", () => labPanel.classList.remove("hidden"));
+$("lab-close").addEventListener("click", () => labPanel.classList.add("hidden"));
+
+// ---- sensor mode segmented control
+const segSensor = $("seg-sensor");
+segSensor.querySelectorAll("button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    wsSend({ type: "set_sensor_mode", mode: btn.dataset.mode });
+  });
+});
+function setSegActive(seg, key, dataKey) {
+  seg.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("active", b.dataset[dataKey] === key);
+  });
+}
+
+// ---- motor output segmented control (with confirm on real)
+const segMotor = $("seg-motor");
+segMotor.querySelectorAll("button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const wantReal = btn.dataset.motor === "real";
+    if (wantReal && !confirm(
+        "Enable real motor output?\n\nH-bridge pins will be driven this tick. Make sure wheels are clear."
+    )) return;
+    wsSend({ type: "set_motor_output", enabled: wantReal });
+  });
+});
+
+// ---- static scenario editor
+let currentScenario = null;
+let irBits = 0;
+
+function bindScenarioInputs() {
+  ["sc-usf","sc-usr","sc-ir","sc-gz","sc-ax"].forEach((id) => {
+    $(id).addEventListener("change", () => {}); // apply is explicit
+  });
+  document.querySelectorAll(".ir-bit").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const bit = +btn.dataset.bit;
+      irBits ^= (1 << bit);
+      btn.classList.toggle("on", !!(irBits & (1 << bit)));
+      $("sc-ir").value = irBits;
+    });
+  });
+  $("sc-apply").addEventListener("click", () => {
+    const fields = {
+      us_front_cm: +$("sc-usf").value || 0,
+      us_rear_cm: +$("sc-usr").value || 0,
+      ir_mask: (+$("sc-ir").value) & 0x3F,
+      imu_gz_dps: +$("sc-gz").value || 0,
+      imu_ax_g: +$("sc-ax").value || 0,
+    };
+    wsSend({ type: "set_scenario", fields });
+  });
+}
+bindScenarioInputs();
+
+function syncScenarioUI(s) {
+  if (!s) return;
+  // Only overwrite if the user isn't actively editing (input not focused)
+  if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+  $("sc-usf").value = s.us_front_cm;
+  $("sc-usr").value = s.us_rear_cm;
+  $("sc-ir").value = s.ir_mask;
+  $("sc-gz").value = s.imu_gz_dps;
+  $("sc-ax").value = s.imu_ax_g;
+  irBits = s.ir_mask & 0x3F;
+  document.querySelectorAll(".ir-bit").forEach((btn) => {
+    const bit = +btn.dataset.bit;
+    btn.classList.toggle("on", !!(irBits & (1 << bit)));
+  });
+}
+
+// ---- target editor
+$("tgt-apply").addEventListener("click", () => {
+  const distance_m = +$("tgt-dist").value || 0;
+  const bearing_deg = +$("tgt-bear").value || 0;
+  wsSend({ type: "set_target", distance_m, bearing_deg });
+});
+
+function syncTargetUI(t) {
+  if (!t) return;
+  if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+  $("tgt-dist").value = t.distance_m.toFixed(1);
+  $("tgt-bear").value = t.bearing_deg.toFixed(0);
+  // compass arrow: bearing 0 = up, positive = left = counterclockwise
+  $("tc-arrow").style.transform = `translate(-50%, 0) rotate(${-t.bearing_deg}deg)`;
+}
+
+// ---- engage
+const engageBtn = $("engage-btn");
+engageBtn.addEventListener("click", () => {
+  const engaged = engageBtn.classList.contains("engaged");
+  if (engaged) {
+    wsSend({ type: "policy_disengage" });
+  } else {
+    wsSend({ type: "policy_engage",
+             wheels_off_ground: $("wheels-off").checked });
+  }
+});
+
+function handleAck(a) {
+  if (a.kind === "policy_engage" && !a.ok) {
+    $("engage-hint").textContent = "engage refused: " + a.reason;
+  } else if (a.kind === "policy_engage" && a.ok) {
+    $("engage-hint").textContent = "engaged";
+  } else if (a.kind === "policy_disengage" && a.ok) {
+    $("engage-hint").textContent = "disengaged";
+  } else if (a.kind === "set_motor_output" && !a.ok) {
+    alert("motor output change refused: " + a.reason);
+  } else if (a.kind === "set_sensor_mode" && !a.ok) {
+    $("sensor-hint").textContent = "refused: " + a.reason;
+  }
+}
+
+// ---- policy live rendering
+function polBar(id, v) {
+  const el = $(id);
+  el.classList.toggle("rev", v < 0);
+  const pct = Math.min(50, Math.abs(v) * 50);
+  el.style.width = pct + "%";
+  el.style.left = v >= 0 ? "50%" : (50 - pct) + "%";
+  $(id + "-val").textContent = v.toFixed(2);
+}
+
+const traceCanvas = $("trace");
+const traceCtx = traceCanvas.getContext("2d");
+const traceLen = 200;                        // ~10 s at 20 Hz
+const traceThrottle = new Array(traceLen).fill(0);
+const traceSteer = new Array(traceLen).fill(0);
+const traceUs = new Array(traceLen).fill(1);
+
+function pushTrace(pol) {
+  traceThrottle.shift(); traceThrottle.push(pol.throttle);
+  traceSteer.shift();    traceSteer.push(pol.steer);
+  const usn = pol.obs && pol.obs.us_norm
+              ? Math.min(pol.obs.us_norm.front, pol.obs.us_norm.rear)
+              : 1;
+  traceUs.shift(); traceUs.push(usn);
+}
+
+function drawTrace() {
+  const W = traceCanvas.width, H = traceCanvas.height;
+  traceCtx.clearRect(0, 0, W, H);
+  // center line
+  traceCtx.strokeStyle = "#2a312d";
+  traceCtx.beginPath(); traceCtx.moveTo(0, H/2); traceCtx.lineTo(W, H/2); traceCtx.stroke();
+  const drawSeries = (arr, color, mapY) => {
+    traceCtx.strokeStyle = color; traceCtx.lineWidth = 1.2;
+    traceCtx.beginPath();
+    for (let i = 0; i < arr.length; i++) {
+      const x = (i / (arr.length - 1)) * W;
+      const y = mapY(arr[i]);
+      if (i === 0) traceCtx.moveTo(x, y); else traceCtx.lineTo(x, y);
+    }
+    traceCtx.stroke();
+  };
+  // throttle/steer in [-1,1] map to [H, 0] with center at H/2
+  drawSeries(traceThrottle, "#ffb000", v => H/2 - v * (H/2 - 4));
+  drawSeries(traceSteer,    "#4aa3ff", v => H/2 - v * (H/2 - 4));
+  // us-norm in [0,1] map to bottom-half amplitude (0=red spike UP)
+  drawSeries(traceUs,       "#ff4444", v => H - v * (H - 4));
+}
+
+function renderLab(f) {
+  // segmented button states
+  setSegActive(segSensor, f.sensor_mode || "hardware", "mode");
+  setSegActive(segMotor, f.motor.output_enabled ? "real" : "dummy", "motor");
+
+  // sensor mode hint
+  const smHint = {
+    hardware: "Real sensors via GPIO/I²C.",
+    dummy_static: "Sensors report the static scenario below. Edit and APPLY.",
+    dummy_kinematic: "Sensors derived from a fake pose driven by applied motor duty.",
+  }[f.sensor_mode || "hardware"];
+  $("sensor-hint").textContent = smHint;
+
+  // scenario card visibility
+  $("scenario-card").style.display =
+    (f.sensor_mode === "dummy_static") ? "" : "none";
+  if (f.scenario) { currentScenario = f.scenario; syncScenarioUI(f.scenario); }
+
+  // engage button state
+  const pol = f.policy;
+  const loaded = !!f.policy_loaded;
+  if (!loaded) {
+    engageBtn.disabled = true;
+    engageBtn.textContent = "POLICY NOT LOADED";
+    $("engage-hint").textContent = "server booted without an ONNX policy";
+  } else {
+    engageBtn.disabled = false;
+    const eng = !!(pol && pol.engaged);
+    engageBtn.classList.toggle("engaged", eng);
+    engageBtn.textContent = eng ? "DISENGAGE" : "ENGAGE POLICY";
+  }
+
+  if (pol) {
+    // target sync
+    if (pol.target) syncTargetUI(pol.target);
+    // action bars
+    polBar("pb-throttle", pol.throttle || 0);
+    polBar("pb-steer", pol.steer || 0);
+    // wheels
+    $("pw-tl").textContent = (pol.target_left  || 0).toFixed(2);
+    $("pw-tr").textContent = (pol.target_right || 0).toFixed(2);
+    $("pw-al").textContent = f.motor.left.toFixed(2);
+    $("pw-ar").textContent = f.motor.right.toFixed(2);
+    // obs
+    if (pol.obs) {
+      const o = pol.obs;
+      if (o.us_norm) {
+        $("obs-usf").textContent = o.us_norm.front.toFixed(2);
+        $("obs-usr").textContent = o.us_norm.rear.toFixed(2);
+      }
+      $("obs-yaw").textContent = (o.yaw_rate_rad_s || 0).toFixed(2);
+      $("obs-yaw-n").textContent = (o.yaw_norm || 0).toFixed(2);
+      if (o.target) {
+        $("obs-tgt-d").textContent = o.target.distance_m.toFixed(1);
+        $("obs-tgt-b").textContent = o.target.bearing_deg.toFixed(0);
+      }
+      // IR in policy order
+      const irLabels = ["FL","FR","RL","RR","L","R"];
+      document.querySelectorAll(".ir-policy .dot").forEach((d) => {
+        const label = irLabels[+d.dataset.idx];
+        d.classList.toggle("on", !!(o.ir && o.ir[label]));
+      });
+    }
+    $("obs-lat").textContent    = (pol.latency_ms || 0).toFixed(1);
+    $("obs-lat-max").textContent = (pol.max_latency_ms || 0).toFixed(1);
+
+    pushTrace(pol);
+    drawTrace();
+  }
+}

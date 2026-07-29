@@ -15,6 +15,9 @@
   <div id="dead-banner" class="banner dead hidden">DEADMAN</div>
 </div>
 
+<!-- top-right tab that opens the Autonomy Lab -->
+<button id="lab-open" title="Autonomy Lab">▤ LAB</button>
+
 <main id="grid" class="stale">
   <!-- left column: telemetry -->
   <section class="col" id="col-sensors">
@@ -68,6 +71,9 @@
         <span id="flag-cap" class="flag">CAP</span>
         <span id="flag-pad" class="flag">PAD</span>
         <span id="flag-ws" class="flag">LINK</span>
+        <span id="flag-sensor" class="flag">SENS:HW</span>
+        <span id="flag-motor" class="flag">MTR:REAL</span>
+        <span id="flag-policy" class="flag">POL:OFF</span>
       </div>
     </div>
   </section>
@@ -79,6 +85,136 @@
     <canvas id="stick" width="300" height="300"></canvas>
   </section>
 </main>
+
+<!-- ============================================================
+     AUTONOMY LAB — slide-out panel. Everything policy-facing is
+     scoped in here so the pilot page stays visually unchanged.
+     ============================================================ -->
+<aside id="lab-panel" class="hidden">
+  <header class="lab-head">
+    <span class="lab-title">AUTONOMY LAB</span>
+    <button id="lab-close" title="close">✕</button>
+  </header>
+  <div class="lab-body">
+
+    <!-- ---- SOURCE MODES ------------------------------------ -->
+    <section class="lab-card">
+      <h3>SENSOR SOURCE</h3>
+      <div class="lab-row seg" id="seg-sensor">
+        <button data-mode="hardware">HARDWARE</button>
+        <button data-mode="dummy_static">DUMMY STATIC</button>
+        <button data-mode="dummy_kinematic">DUMMY KIN</button>
+      </div>
+      <p class="lab-hint" id="sensor-hint">Real sensors via GPIO/I²C.</p>
+    </section>
+
+    <section class="lab-card">
+      <h3>MOTOR OUTPUT</h3>
+      <div class="lab-row seg" id="seg-motor">
+        <button data-motor="real">REAL MOTORS</button>
+        <button data-motor="dummy">DUMMY MOTORS</button>
+      </div>
+      <p class="lab-hint">
+        Dummy: safety loop still runs, telemetry shows commanded duty,
+        H-bridge pins are not driven.
+      </p>
+    </section>
+
+    <!-- ---- STATIC SCENARIO EDITOR -------------------------- -->
+    <section class="lab-card" id="scenario-card">
+      <h3>DUMMY SCENARIO (STATIC)</h3>
+      <div class="scenario-grid">
+        <label>US front (cm) <input type="number" id="sc-usf" step="10" min="0"></label>
+        <label>US rear (cm)  <input type="number" id="sc-usr" step="10" min="0"></label>
+        <label>IR mask (0..63) <input type="number" id="sc-ir" min="0" max="63"></label>
+        <label>gz (°/s) <input type="number" id="sc-gz" step="1"></label>
+        <label>ax (g)   <input type="number" id="sc-ax" step="0.05"></label>
+      </div>
+      <div class="ir-editor">
+        <span class="lbl">IR bits</span>
+        <button class="ir-bit" data-bit="0">FL</button>
+        <button class="ir-bit" data-bit="1">FR</button>
+        <button class="ir-bit" data-bit="2">RL</button>
+        <button class="ir-bit" data-bit="3">RR</button>
+        <button class="ir-bit" data-bit="4">L</button>
+        <button class="ir-bit" data-bit="5">R</button>
+      </div>
+      <button id="sc-apply" class="lab-primary">APPLY SCENARIO</button>
+    </section>
+
+    <!-- ---- TARGET ----------------------------------------- -->
+    <section class="lab-card">
+      <h3>POLICY TARGET</h3>
+      <div class="scenario-grid">
+        <label>Distance (m) <input type="number" id="tgt-dist" step="0.1" min="0" max="20"></label>
+        <label>Bearing (° left+) <input type="number" id="tgt-bear" step="5"></label>
+      </div>
+      <div class="target-compass" id="tgt-compass" title="target direction (car-local)">
+        <div class="tc-ring"></div>
+        <div class="tc-car"></div>
+        <div class="tc-arrow" id="tc-arrow"></div>
+      </div>
+      <button id="tgt-apply" class="lab-primary">APPLY TARGET</button>
+    </section>
+
+    <!-- ---- ENGAGE ----------------------------------------- -->
+    <section class="lab-card">
+      <h3>POLICY</h3>
+      <label class="lab-check">
+        <input type="checkbox" id="wheels-off">
+        Wheels off the ground (required to engage on real motors)
+      </label>
+      <button id="engage-btn" class="lab-danger">ENGAGE POLICY</button>
+      <p class="lab-hint" id="engage-hint"></p>
+    </section>
+
+    <!-- ---- OBSERVABILITY --------------------------------- -->
+    <section class="lab-card">
+      <h3>POLICY LIVE</h3>
+      <div class="pol-actions">
+        <div class="pol-bar">
+          <span>THROTTLE</span>
+          <div class="pb-track"><div class="pb-fill" id="pb-throttle"></div></div>
+          <span class="pb-val" id="pb-throttle-val">0.00</span>
+        </div>
+        <div class="pol-bar">
+          <span>STEER</span>
+          <div class="pb-track"><div class="pb-fill" id="pb-steer"></div></div>
+          <span class="pb-val" id="pb-steer-val">0.00</span>
+        </div>
+      </div>
+
+      <div class="pol-wheels">
+        <div>
+          TARGET  L <b id="pw-tl">0.00</b> / R <b id="pw-tr">0.00</b>
+        </div>
+        <div>
+          APPLIED L <b id="pw-al">0.00</b> / R <b id="pw-ar">0.00</b>
+        </div>
+      </div>
+
+      <div class="pol-obs">
+        <div>US-norm F <b id="obs-usf">1.00</b> / R <b id="obs-usr">1.00</b></div>
+        <div>Yaw <b id="obs-yaw">0.00</b> rad/s (norm <b id="obs-yaw-n">0.00</b>)</div>
+        <div>Target <b id="obs-tgt-d">2.0</b> m @ <b id="obs-tgt-b">0</b>°</div>
+        <div>Latency <b id="obs-lat">0.0</b> ms (max <b id="obs-lat-max">0.0</b>)</div>
+      </div>
+
+      <div>
+        <span class="lbl">IR [FL,FR,RL,RR,L,R]</span>
+        <div class="ir-dots ir-policy">
+          <span class="dot" data-idx="0"></span><span class="dot" data-idx="1"></span>
+          <span class="dot" data-idx="2"></span><span class="dot" data-idx="3"></span>
+          <span class="dot" data-idx="4"></span><span class="dot" data-idx="5"></span>
+        </div>
+      </div>
+
+      <canvas id="trace" width="380" height="120"></canvas>
+      <p class="lab-hint">Trace: throttle (amber), steer (blue), worst US (red). Last ~10 s.</p>
+    </section>
+
+  </div>
+</aside>
 
 <script src="app.js"></script>
 </body>
