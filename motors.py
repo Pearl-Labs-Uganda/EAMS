@@ -51,9 +51,17 @@ class MotorThread(threading.Thread):
 
         self._stall_motion_time = time.monotonic()
 
+        # Runtime motor-output mode. When False the full safety pipeline still
+        # runs (applied duty is computed, telemetry updates, deadman/stall/slew
+        # all behave normally), but _drive_channel does not push pin writes to
+        # the H-bridge. Use for engaging the policy against dummy sensors on a
+        # real Jetson without spinning the wheels.
+        self._output_enabled = True
+        self._output_lock = threading.Lock()
+
         self._setup_pins()
         self._all_stop()              # §5 startup state: zero before socket opens
-        
+
         if not config.STALL_GUARD_ENABLED:
             log.warning("STALL GUARD DISABLED — no stall protection. "
                         "Wheels off the ground only.")
@@ -90,6 +98,31 @@ class MotorThread(threading.Thread):
             self._stall_motion_time = time.monotonic()
         log.info("stall latch cleared by client reset")
 
+    def set_output_enabled(self, enabled):
+        """Runtime toggle for physical motor output ("dummy motors" switch).
+
+        Disabling coasts the pins immediately (does not wait for the next tick).
+        The safety pipeline keeps running — applied duty, deadman, stall, slew,
+        zero-cross, cap — so telemetry keeps reporting what the pipeline WOULD
+        have done, which is exactly what the observability panel wants.
+        """
+        with self._output_lock:
+            if enabled == self._output_enabled:
+                return
+            self._output_enabled = bool(enabled)
+        if not enabled:
+            self._all_stop()
+            log.warning("MOTOR OUTPUT DISABLED — safety loop continues, "
+                        "H-bridge pins no longer driven")
+        else:
+            log.warning("MOTOR OUTPUT ENABLED — H-bridge pins will be driven "
+                        "from this tick")
+
+    @property
+    def output_enabled(self):
+        with self._output_lock:
+            return self._output_enabled
+
     def stop(self):
         self._stop_evt.set()
 
@@ -116,7 +149,16 @@ class MotorThread(threading.Thread):
         self.out_left = self.out_right = 0.0
 
     def _drive_channel(self, ch, duty_signed):
-        """duty_signed in [-DUTY_CAP, DUTY_CAP] after the cap. Sets IN pins + PWM."""
+        """duty_signed in [-DUTY_CAP, DUTY_CAP] after the cap. Sets IN pins + PWM.
+
+        Short-circuits when output is disabled (dummy motors mode). The caller
+        has already advanced applied state and telemetry — we just suppress the
+        physical writes.
+        """
+        with self._output_lock:
+            if not self._output_enabled:
+                return
+
         if ch == "L":
             in_a, in_b, en = config.IN1, config.IN2, config.ENA
         else:
