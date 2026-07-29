@@ -353,6 +353,165 @@ Three-layer scheme so new chats/contributors don't start from scratch:
    from `eams_rover_sim` onto the real car.
 4. Keep `project-brief.md` in sync as intent (esp. the phase framing) is confirmed.
 
+## 9. Policy inference on-device, dummy sensor + motor modes, Autonomy Lab (27 July 2026)
+
+**Context:** with the electronics team still bringing up the physical sensor
+suite, we needed a way to exercise the trained PPO policy against the real
+motor safety layer without waiting for real sensors, and to do it safely on the
+bench without wheels turning. This entry ships that end-to-end.
+
+### 9.1 Where the policy plugs in
+The policy runner is *another controller* on the same interface the browser
+uses. Inference in a background thread at `POLICY_HZ = 20` builds the 18-dim
+observation vector, runs one ONNX forward pass, mixes `(throttle, steer)` to
+`(targetLeft, targetRight)` line-for-line from
+`DifferentialCarAgent.OnActionReceived`, and pushes them into
+`motor_thread.set_command(...)`. The safety layer (deadman, stall latch, slew,
+zero-cross coast, 55 % duty cap) runs downstream unchanged. **`motors.py`,
+`hardware.py`, and the safety pipeline were not weakened** — a good sign the
+design fits.
+
+Observation source-by-source:
+
+| Slot(s) | Field | Source today |
+|---|---|---|
+| 0–2 | Target unit vec (Unity local) | Hard-coded local target editable from UI (distance + bearing) |
+| 3 | Target distance norm | Same |
+| 4–6 | Local linear velocity norm | **Zero** — no odometry; documented gap, first thing to fix |
+| 7 | Yaw rate norm | MPU6050 `gz` → dps → rad/s → normalised |
+| 8–9 | Ultrasonic F/R (0..1) | Existing cm reading → `min(cm/100, 5) / 5` |
+| 10–15 | IR ×6 in `[FL,FR,RL,RR,L,R]` | Existing 6-bit mask; wiring confirmed 27 Jul, `config.IR_LABELS` added |
+| 16–17 | smoothedLeft/Right | Controller-side memory maintained in Python via a MoveTowards port |
+
+Inference is CPU (onnxruntime, CPU provider) — enough headroom for a 2×128
+MLP at 20 Hz on the Orin Nano; TensorRT is a drop-in later if we ever need
+sub-5 ms.
+
+### 9.2 Dummy sensor mode
+`SensorThread` is now mode-dispatched, with three modes selectable at runtime:
+
+- `hardware` — the existing GPIO/I²C path, byte-identical to before.
+- `dummy_static` — publishes a hand-authored scenario (US cm, IR mask, IMU
+  dps/g) editable from the UI. For exercising the observation adapters and
+  seeing how the policy responds to fixed inputs.
+- `dummy_kinematic` — reads `motor_thread.out_left/right` each tick, advances a
+  diff-drive pose with `_KIN_WHEEL_MAX_MPS = 0.6` / `_KIN_WHEELBASE_M = 0.15`,
+  and derives US/IR/IMU from that pose against a fixed obstacle map. Closes
+  the loop off-hardware: policy commands → predicted motion → next
+  observations → next inference.
+
+All three write the **same** shared-dict keys under the same lock, so the
+telemetry frame and observation builder don't know which mode is active.
+Hardware setup runs at boot regardless of mode; runtime mode swaps do not
+touch GPIO.
+
+### 9.3 Dummy motor mode
+A new toggle on `MotorThread`: when `_output_enabled` is false, `_drive_channel`
+short-circuits — **the full safety pipeline still runs**, applied duty and
+`out_left/right` telemetry update normally, but H-bridge pin writes are
+suppressed. Coasts immediately on disable so nothing is left commanded. This is
+what lets you engage the policy on the real Jetson with real hardware attached
+and observe the full loop without wheels turning. Startup default is `real`;
+`--motor-output dummy` boots in dummy mode.
+
+### 9.4 Autonomy Lab (UI)
+Slide-out panel behind a `LAB` tab in the top-right. Pilot page is visually
+unchanged unless the panel is opened. Panel contents:
+
+- **Sensor source** segmented control (hardware / static / kinematic).
+- **Motor output** segmented control (real / dummy) with a browser `confirm()`
+  when switching to real.
+- **Dummy scenario editor** (visible only in static mode): US front/rear cm,
+  IR mask with per-bit clickable buttons labelled FL/FR/RL/RR/L/R, IMU gz and
+  ax fields. Apply-to-server button.
+- **Policy target** editor (distance + bearing) with a compass-arrow preview.
+- **Engage/Disengage** with a "wheels off ground" checkbox required to engage
+  on real motors. Server enforces the gate — the checkbox is not honor-system.
+- **Live observability panel**: throttle/steer as bidirectional bars, target
+  vs applied (left, right), US-norm, yaw rate raw and normalised, target
+  polar, inference latency (mean and running max), and a rolling ~10 s trace
+  plot of throttle (amber), steer (blue), and worst-case ultrasonic (red).
+
+Three small chips added to the pilot flags row so mode/engagement is visible
+without opening the lab: `SENS:HW/STA/KIN`, `MTR:REAL/DUMMY`, `POL:ON/OFF`.
+
+### 9.5 Safety interlocks
+- Refuse `policy_engage` if a human currently holds control.
+- Refuse `policy_engage` if motor output is **real** and the client did not
+  set `wheels_off_ground: true` on the request.
+- Refuse human `take` while policy is engaged — policy IS the driver.
+- Refuse `set_motor_output(false)` while policy is engaged on real motors —
+  makes you disengage first, so we don't get half-live states.
+- On a WS disconnect the runner's controller state is torn down; the deadman
+  fires within 300 ms regardless.
+- On an inference exception the runner disengages itself and logs — the
+  deadman catches whatever slips through.
+
+### 9.6 Files touched
+
+| File | Change |
+|---|---|
+| `config.py` | `IR_LABELS`, mirrored obs bounds (`MAX_LINEAR_SPEED = 3.0`, `MAX_ANGULAR_SPEED = 6.0`, `MAX_TARGET_DISTANCE = 20.0`, `ULTRASONIC_RANGE_M = 5.0`), `POLICY_MODEL_PATH`, `POLICY_HZ = 20`, `MOTOR_RESPONSE_RATE = 6.0` |
+| `motors.py` | `set_output_enabled(bool)` + `output_enabled` property; `_drive_channel` early-returns when disabled |
+| `sensors.py` | `SensorThread` now mode-dispatched (hardware / dummy_static / dummy_kinematic); `set_mode`, `set_scenario`, `reset_kinematic`, `get_kinematic_pose` |
+| `policy.py` | **new** — `ObservationBuilder` + `PolicyRunner` (ONNX via onnxruntime, deterministic head, 20 Hz command loop, self-disengage on inference error, snapshot for UI) |
+| `server.py` | `--sensor-mode`, `--motor-output`, `--no-policy` CLI flags; new WS messages `set_sensor_mode`, `set_motor_output`, `set_target`, `set_scenario`, `reset_kinematic`, `policy_engage`, `policy_disengage`; extended telemetry with `sensor_mode`, `motor.output_enabled`, `policy`, `scenario`, `kin_pose`, `policy_loaded`; new controller interlocks |
+| `static/*` | Autonomy Lab panel (HTML + CSS + JS), pilot-page flag chips |
+| `requirements.txt` | `onnxruntime>=1.17`, `numpy>=1.24` |
+| `policies/DifferentialCarAgent-obstacles_v3.onnx` | trained model, already checked in |
+
+### 9.7 Dry-run verification
+`python3 server.py --dry-run --sensor-mode dummy_kinematic --motor-output dummy`
+came up cleanly: motors, sensors, and policy threads all running; ONNX loaded
+with `input=obs_0`, `output=deterministic_continuous_actions`. A scripted WS
+client connected, set a target `(3.0 m, -20°)`, engaged the policy, and
+telemetry frames arrived showing:
+
+- inference latency **0.18 ms / running max 2.36 ms** (well under a 30 ms budget)
+- policy commanding `throttle=+1.000, steer=+0.497`; motor applied
+  `+0.550 / +0.437` (duty cap correctly biting on the left channel)
+- kinematic pose advancing as expected (`x`, `z`, `yaw` all evolving)
+- clean disengage; deadman firing 300 ms after the WS closed
+
+Sign conventions all check out in a scenarios sweep (target-left → `steer < 0`
+→ turn left through the mixer, obstacle-in-front → throttle drops toward zero,
+boxed-in → spin-in-place).
+
+### 9.8 Open items after this entry
+1. **Local-velocity observation is zero.** No odometry → the policy never
+   "sees" that it's moving. Wheel encoders or a VIO/IMU-integration proxy is
+   the first accuracy win; without it the policy can over-command speed. This
+   is the biggest sim-to-real gap in the current observation vector.
+2. **Kinematic dummy is uncalibrated.** `_KIN_WHEEL_MAX_MPS` and
+   `_KIN_WHEELBASE_M` are educated guesses; the mode is legible for demo
+   purposes, not quantitatively accurate. Once real motors move a measured
+   distance, pin these constants.
+3. **Verify `onnxruntime` wheel on the actual Jetson (JetPack 7).** Design
+   assumption is that pip installs cleanly; confirm on the device before
+   step 5 of the bring-up in `project-brief.md §7`.
+4. **PWM on BOARD pins 32/33** still needs `jetson-io`/pinmux verification,
+   or a PCA9685 fallback. This is the last blocker for real-motor bring-up
+   and is unchanged from §8.6.
+5. **MPU6050 still not installed.** With `STALL_GUARD_ENABLED = True` in
+   `config.py`, sensors publish zero gyro in hardware mode, which will
+   stall-cut after 1 s the moment the policy commands non-zero duty on real
+   motors. Either fit the IMU, keep the current-sense stall detector plan
+   from §8.6, or explicitly `STALL_GUARD_ENABLED = False` for early policy
+   drives (documented risk).
+6. **UI defence for scenario input.** The static-scenario input fields are
+   `<input type="number">` without min/max clamping in JS — the server
+   ignores out-of-range values but the UI could preempt them.
+
+### 9.9 Update `project-brief.md` alongside
+- §4 code artifacts: add `policy.py` and note the SensorThread mode-dispatch;
+  add "Autonomy Lab" to the client description.
+- §6.4: the adapter is now shipped — the target/goal is a UI-editable local
+  target, and units conversion is inside `ObservationBuilder`. The remaining
+  gap in §6.4 becomes the local-velocity observation (item 1 above).
+- §7 near-term path: step 5 now becomes "engage on real motors, wheels off
+  ground, dummy sensors, observe via Autonomy Lab" (item 3 above).
+
+
 ---
 
 ## Glossary
