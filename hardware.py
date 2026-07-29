@@ -23,6 +23,7 @@ class JetsonHardware:
         self.GPIO = GPIO
         self.SMBus = SMBus
         self._pwm = {}
+        self._pwm_freq = {}       # requested freq, may be set before the object
         self._i2c = {}
 
         GPIO.setmode(GPIO.BOARD)
@@ -41,6 +42,9 @@ class JetsonHardware:
         return int(self.GPIO.input(pin))
 
     def set_PWM_frequency(self, pin, hz):
+        # Record it even if the PWM object does not exist yet, so a call made
+        # during setup is not silently discarded (it used to be).
+        self._pwm_freq[pin] = hz
         pwm = self._pwm.get(pin)
         if pwm is not None:
             pwm.ChangeFrequency(hz)
@@ -49,7 +53,20 @@ class JetsonHardware:
         if pwm_range != 255:
             raise ValueError("Jetson backend expects 0..255 PWM duty values")
         if pin not in self._pwm:
-            pwm = self.GPIO.PWM(pin, config.PWM_FREQ_HZ)
+            # Jetson.GPIO ordering quirk: a PWM pin's GPIO.setup() must come
+            # IMMEDIATELY before its GPIO.PWM() construction. If both enable
+            # pins are set up as plain outputs first, only the last PWM object
+            # created actually drives its pin -- the other sits at a fixed
+            # level. On an L298N enable line that is a channel which is either
+            # dead or stuck fully enabled, and "stuck enabled" bypasses
+            # DUTY_CAP, our only thermal protection while the IMU is missing.
+            # Doing the setup here keeps the pairing correct for any caller.
+            #
+            # initial=LOW is deliberate. The published workaround uses HIGH,
+            # but LOW means "channel off" on an H-bridge enable pin, which is
+            # the safe state to boot into.
+            self.GPIO.setup(pin, self.GPIO.OUT, initial=self.GPIO.LOW)
+            pwm = self.GPIO.PWM(pin, self._pwm_freq.get(pin, config.PWM_FREQ_HZ))
             pwm.start(0)
             self._pwm[pin] = pwm
 

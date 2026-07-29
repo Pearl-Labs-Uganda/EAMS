@@ -511,6 +511,42 @@ boxed-in → spin-in-place).
 - §7 near-term path: step 5 now becomes "engage on real motors, wheels off
   ground, dummy sensors, observe via Autonomy Lab" (item 3 above).
 
+## 2026-07-29 — PWM pin reassignment + Jetson PWM init ordering fix
+
+ENA moved from BOARD pin 32 to 15. Pin 32 is PWM-capable on the older Nano
+and Xavier NX but NOT on Orin Nano, where only 15 and 33 are — so PWM was
+assigned to a pin that could not produce it, while pin 15 (a real PWM pin)
+was being used for a direction line. Direction pins moved to 18/22/24/26 to
+match the bench script that was known to work.
+
+The ultrasonics previously occupied 18/22/24/26, so they moved into the four
+pins the motor change freed: front trig 32, front echo 11, rear trig 16, rear
+echo 13. Front trig is on 32 deliberately — least-trusted pin gets the least
+demanding job. Echo dividers move with the wires. No pin collisions; IR and
+I2C untouched.
+
+Also fixed a Jetson.GPIO ordering bug: ENA and ENB were both put into GPIO
+output mode before either GPIO.PWM object was constructed, which leaves all
+but the last-constructed channel at a fixed level. On an L298N enable line
+that is a channel either dead or stuck fully enabled — and "stuck enabled"
+bypasses DUTY_CAP, the only thermal protection we have while the MPU6050 is
+absent. GPIO.setup() for PWM pins now happens inside set_PWM_range(),
+immediately before construction. initial=LOW kept (published workaround uses
+HIGH; LOW is the safe state for an enable pin). No safety-layer behaviour
+changed.
+
+Also: set_PWM_frequency() used to early-return when the PWM object did not
+exist yet, so the call in _setup_pins() was a silent no-op. It now records
+the frequency for use at construction.
+
+Added pwm_bench.py — exercises both enable pins with IN1–IN4 held low, so the
+H-bridge outputs stay off and the motors cannot spin during the test.
+
+Next: confirm PWM available on 15/33 in jetson-io; re-crimp the harness to the
+new map; run pwm_bench.py with the battery disconnected; then wheels-off-ground.
+project-brief.md §7.2 still says "PWM verified on 32/33" and needs updating.
+While in jetson-io: confirm SPI is disabled, or it will claim pins 24/26
+(now IN3/IN4) and the direction writes will be silently ignored.
 
 ---
 

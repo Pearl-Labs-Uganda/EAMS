@@ -10,14 +10,19 @@ HTTP_HOST = "0.0.0.0"
 HTTP_PORT = 8080
 
 # ------------------------------------------------------------- motor pins ---
-# ENA/ENB must be PWM-capable Jetson header pins. Configure them for PWM with
-# Jetson-IO / pinmux tooling before expecting PWM at the header.
-ENA = 32          # left channel PWM
-ENB = 33          # right channel PWM
-IN1 = 11          # left direction
-IN2 = 13          # left direction
-IN3 = 15          # right direction
-IN4 = 16          # right direction
+# ENA/ENB must be PWM-capable Jetson header pins. On the Orin Nano ONLY pins 15
+# and 33 are PWM-capable (pin 15 -> /sys/devices/3280000.pwm ch0, pin 33 ->
+# /sys/devices/32c0000.pwm ch0). Pin 32 is PWM on the older Nano / Xavier NX but
+# NOT on Orin -- ENA lived there until 29 Jul 2026, which meant PWM was assigned
+# to a pin that could not produce it. Enable both with:
+#     sudo /opt/nvidia/jetson-io/jetson-io.py
+# and reboot before expecting PWM at the header.
+ENA = 15          # left channel PWM   (PWM-capable)
+ENB = 33          # right channel PWM  (PWM-capable)
+IN1 = 18          # left direction
+IN2 = 22          # left direction
+IN3 = 24          # right direction
+IN4 = 26          # right direction
 
 PWM_FREQ_HZ = 2000
 
@@ -37,10 +42,16 @@ MOTOR_LOOP_HZ = 50
 STALL_GUARD_ENABLED = True
 
 # ------------------------------------------------------------ sensor pins ---
-US_FRONT_TRIG = 18
-US_FRONT_ECHO = 22       # 5 V -> 3.3 V divider REQUIRED
-US_REAR_TRIG = 24
-US_REAR_ECHO = 26        # 5 V -> 3.3 V divider REQUIRED
+# Moved 29 Jul 2026: the ultrasonics previously sat on 18/22/24/26, which the
+# motor direction pins now use. These four pins are the ones the motor move
+# freed up, so the two groups simply traded places. TRIG is on pin 32 because
+# it is the pin we have least confidence in and a 10 us output pulse is the
+# least demanding job on the header; if the front ultrasonic misbehaves, pin 32
+# is the first suspect.
+US_FRONT_TRIG = 32
+US_FRONT_ECHO = 11       # 5 V -> 3.3 V divider REQUIRED
+US_REAR_TRIG = 16
+US_REAR_ECHO = 13        # 5 V -> 3.3 V divider REQUIRED
 
 IR_PINS = [29, 31, 36, 37, 12, 38]
 

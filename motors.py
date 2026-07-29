@@ -133,9 +133,15 @@ class MotorThread(threading.Thread):
 
     # ------------------------------------------------------------------- GPIO
     def _setup_pins(self):
-        for pin in (config.ENA, config.ENB, config.IN1, config.IN2,
-                    config.IN3, config.IN4):
+        # Direction pins are plain GPIO outputs -- order does not matter.
+        for pin in (config.IN1, config.IN2, config.IN3, config.IN4):
             self.pi.set_mode(pin, 1)  # OUTPUT
+        # Enable pins must NOT be pre-set as plain outputs here. Jetson.GPIO
+        # only drives the last PWM channel constructed if several PWM pins are
+        # put into output mode before their PWM objects exist, so each channel
+        # has to be finished before the next is touched. set_PWM_range() does
+        # the GPIO.setup() and the PWM construction together for exactly this
+        # reason -- see the comment in hardware.py.
         for pin in (config.ENA, config.ENB):
             self.pi.set_PWM_frequency(pin, config.PWM_FREQ_HZ)
             self.pi.set_PWM_range(pin, 255)
