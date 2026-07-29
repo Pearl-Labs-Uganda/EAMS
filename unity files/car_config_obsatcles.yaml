@@ -1,0 +1,83 @@
+behaviors:
+  # This key MUST match the "Behavior Name" field in your Behavior Parameters
+  # component. Your log shows "Connected new brain: DifferentialCarAgent", so
+  # this is correct. If you rename it in Unity, rename it here too.
+  DifferentialCarAgent:
+    trainer_type: ppo
+    hyperparameters:
+      batch_size: 1024
+      buffer_size: 10240
+      learning_rate: 0.0003
+      # Entropy coefficient. Kept elevated so exploration stays alive while the
+      # policy learns to weave, not just to turn. Watch entropy in TensorBoard:
+      # if it nose-dives as obstacles ramp, push this toward 0.02.
+      beta: 0.01
+      epsilon: 0.2
+      lambd: 0.95
+      num_epoch: 3
+      learning_rate_schedule: linear
+      beta_schedule: linear
+      epsilon_schedule: linear
+    network_settings:
+      normalize: true
+      hidden_units: 128
+      num_layers: 2
+      vis_encode_type: simple
+    reward_signals:
+      extrinsic:
+        gamma: 0.99
+        strength: 1.0
+    keep_checkpoints: 5
+    checkpoint_interval: 200000
+    # Warm-started from the empty-arena checkpoint via:
+    #   mlagents-learn car_config.yaml --initialize-from=<empty_run_id> --run-id=obstacles_v1
+    # (Requires the empty run to have used THIS obs=18 / throttle-steer network,
+    #  or the weights won't load and you'll retrain from scratch.)
+    max_steps: 3000000
+    time_horizon: 64
+    summary_freq: 20000
+
+environment_parameters:
+  # Heading is already solved from the empty run, so hold it at fully-random
+  # instead of re-climbing the old 3-lesson heading curriculum. If you see the
+  # warm-started policy regress on back-facing starts, reintroduce a short
+  # heading_range_deg curriculum here.
+  heading_range_deg: 360.0
+
+  # NEW: ramp obstacle density instead of dropping the full room on the policy at
+  # once. The agent reads this as "obstacle_count" in OnEpisodeBegin and activates
+  # that many random furniture pieces; the rest are disabled for the episode.
+  #
+  # NOTE ON THRESHOLDS: mean episode reward DROPS as obstacles increase (more
+  # collisions, longer detour routes accruing the existential penalty), so the
+  # per-lesson thresholds step DOWN, not up. Treat these as starting guesses and
+  # tune against the reward level at which each lesson visibly plateaus in
+  # TensorBoard. Set the final "Full" value to your furnitureList.Count.
+  obstacle_count:
+    curriculum:
+      - name: Clear            # 0 obstacles -> confirms the warm start didn't regress
+        completion_criteria:
+          measure: reward
+          behavior: DifferentialCarAgent
+          threshold: 0.6
+          min_lesson_length: 100
+          require_reset: true
+        value: 0.0
+      - name: Sparse           # a few pieces -> first real avoidance
+        completion_criteria:
+          measure: reward
+          behavior: DifferentialCarAgent
+          threshold: 0.5
+          min_lesson_length: 150
+          require_reset: true
+        value: 3.0
+      - name: Moderate         # denser -> routing between clusters
+        completion_criteria:
+          measure: reward
+          behavior: DifferentialCarAgent
+          threshold: 0.4
+          min_lesson_length: 150
+          require_reset: true
+        value: 6.0
+      - name: Full             # full clutter -> set to your furnitureList.Count
+        value: 12.0
