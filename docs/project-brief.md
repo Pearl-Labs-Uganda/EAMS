@@ -181,6 +181,13 @@ These are the things most likely to trip up a new contributor.
 **Rule of thumb:** decisions and changes get logged in the progress report;
 orientation lives here; hard rules live in the project instructions.
 
+**Commit rule:** for every change, include a **git commit message and body**.
+Group related files into one logical commit; write a short imperative subject
+(matching our `feat:` / `doc:` / `chore:` / `refactor:` convention) and a body
+that explains *why*, not just what. When a change is significant enough to log
+in the progress report, the commit body and the logbook entry should tell the
+same story.
+
 ---
 
 ## 9. Caveat on intent
