@@ -156,11 +156,24 @@ These are the things most likely to trip up a new contributor.
 
 1. **Validate software with no hardware** on the Jetson: `rccar/server.py
    --dry-run` (GPIO stubbed) and the simulators. Zero sensors required.
-2. **Hardware bring-up**, wheels off the ground. Jetson-specific risk is **PWM on
-   BOARD pins 32/33** — needs pinmux via `jetson-io`; fall back to an external
-   PCA9685 if unstable. Then the checklist: L298N 5 V jumper removed → 5 V sensor
-   outputs level-shifted → PWM verified on 32/33 → deadman stops wheels < 300 ms
-   → direction mapping verified **before** floor driving.
+2. **Hardware bring-up**, wheels off the ground. The Jetson-specific risk is
+   **hardware PWM on the 40-pin header**: on Orin Nano only BOARD pins **15 and
+   33** are PWM-capable, and both must be enabled via `sudo
+   /opt/nvidia/jetson-io/jetson-io.py` followed by a reboot. (Pin 32 is PWM on
+   the older Nano and Xavier NX but *not* on Orin — ENA sat there until
+   29 Jul 2026. See the logbook.) Fall back to an external PCA9685 if 15/33
+   prove unstable. Two further header traps: pins **24/26 are SPI chip-selects
+   by default** and now carry IN3/IN4, so SPI must be disabled in `jetson-io`
+   or the direction writes are silently ignored; and Jetson.GPIO will only
+   drive the last PWM channel constructed unless each channel's setup is
+   immediately followed by its own PWM object (fixed in `hardware.py`).
+
+   Checklist, in order: L298N 5 V jumper removed → 5 V sensor outputs
+   level-shifted (both ultrasonic echo lines need dividers) → `jetson-io` shows
+   PWM on 15/33 and SPI off → **`pwm_bench.py` with the motor battery
+   disconnected** confirms both PWM chips enabled with nonzero duty in
+   `/sys/kernel/debug/pwm` → deadman stops wheels < 300 ms → direction mapping
+   verified **before** floor driving.
 3. **Service install** (`rccar.service`) once manual run is clean.
 4. **Phase 2 onward:** wire the trained policy's input pipeline (with the adapter
    from §6.4), then define the target/goal source; later, Phase 3 language layer.
