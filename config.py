@@ -10,13 +10,19 @@ HTTP_HOST = "0.0.0.0"
 HTTP_PORT = 8080
 
 # ------------------------------------------------------------- motor pins ---
-# ENA/ENB must be PWM-capable Jetson header pins. On the Orin Nano ONLY pins 15
-# and 33 are PWM-capable (pin 15 -> /sys/devices/3280000.pwm ch0, pin 33 ->
-# /sys/devices/32c0000.pwm ch0). Pin 32 is PWM on the older Nano / Xavier NX but
-# NOT on Orin -- ENA lived there until 29 Jul 2026, which meant PWM was assigned
-# to a pin that could not produce it. Enable both with:
+# ENA/ENB must be PWM-capable Jetson header pins. On this board jetson-io offers
+# PWM on BOARD pins 15, 32 AND 33 -- confirmed on hardware 30 Jul 2026. Several
+# published Orin Nano pinouts list only 15 and 33; they are wrong for our
+# JetPack, so trust the board over the pinout.
+#
+# We use 15 and 33. They sit on separate PWM controllers (15 ->
+# /sys/devices/3280000.pwm ch0, 33 -> /sys/devices/32c0000.pwm ch0) and are the
+# pair the bench script proved out. Enable both with:
 #     sudo /opt/nvidia/jetson-io/jetson-io.py
 # and reboot before expecting PWM at the header.
+#
+# Leave PWM DISABLED for pin 32. It carries US_FRONT_TRIG below, and a pin muxed
+# to the PWM controller ignores GPIO writes.
 ENA = 15          # left channel PWM   (PWM-capable)
 ENB = 33          # right channel PWM  (PWM-capable)
 IN1 = 18          # left direction
@@ -44,10 +50,13 @@ STALL_GUARD_ENABLED = True
 # ------------------------------------------------------------ sensor pins ---
 # Moved 29 Jul 2026: the ultrasonics previously sat on 18/22/24/26, which the
 # motor direction pins now use. These four pins are the ones the motor move
-# freed up, so the two groups simply traded places. TRIG is on pin 32 because
-# it is the pin we have least confidence in and a 10 us output pulse is the
-# least demanding job on the header; if the front ultrasonic misbehaves, pin 32
-# is the first suspect.
+# freed up, so the two groups simply traded places.
+#
+# WARNING: pin 32 is PWM-capable on this board and jetson-io can mux it to the
+# PWM controller. It MUST be left as plain GPIO or this trigger pulse never
+# reaches the header -- and the failure is silent: the sensor reads nothing,
+# with no error. If the front ultrasonic goes quiet, check the pin 32 mux
+# before suspecting the sensor or the wiring.
 US_FRONT_TRIG = 32
 US_FRONT_ECHO = 11       # 5 V -> 3.3 V divider REQUIRED
 US_REAR_TRIG = 16

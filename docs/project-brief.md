@@ -157,11 +157,14 @@ These are the things most likely to trip up a new contributor.
 1. **Validate software with no hardware** on the Jetson: `rccar/server.py
    --dry-run` (GPIO stubbed) and the simulators. Zero sensors required.
 2. **Hardware bring-up**, wheels off the ground. The Jetson-specific risk is
-   **hardware PWM on the 40-pin header**: on Orin Nano only BOARD pins **15 and
-   33** are PWM-capable, and both must be enabled via `sudo
-   /opt/nvidia/jetson-io/jetson-io.py` followed by a reboot. (Pin 32 is PWM on
-   the older Nano and Xavier NX but *not* on Orin — ENA sat there until
-   29 Jul 2026. See the logbook.) Fall back to an external PCA9685 if 15/33
+   **hardware PWM on the 40-pin header**: `jetson-io` on our JetPack offers PWM
+   on BOARD pins **15, 32 and 33** (confirmed on hardware 30 Jul 2026 — several
+   published Orin Nano pinouts list only 15 and 33 and are wrong for us; trust
+   the board). We use **15 and 33**, which sit on separate PWM controllers.
+   Enable those two via `sudo /opt/nvidia/jetson-io/jetson-io.py` and reboot,
+   and **leave PWM off for pin 32** — it carries `US_FRONT_TRIG`, and a pin
+   muxed to the PWM controller ignores GPIO writes, so the front ultrasonic
+   would silently read nothing. Fall back to an external PCA9685 if 15/33
    prove unstable. Two further header traps: pins **24/26 are SPI chip-selects
    by default** and now carry IN3/IN4, so SPI must be disabled in `jetson-io`
    or the direction writes are silently ignored; and Jetson.GPIO will only
@@ -170,7 +173,8 @@ These are the things most likely to trip up a new contributor.
 
    Checklist, in order: L298N 5 V jumper removed → 5 V sensor outputs
    level-shifted (both ultrasonic echo lines need dividers) → `jetson-io` shows
-   PWM on 15/33 and SPI off → **`pwm_bench.py` with the motor battery
+   PWM on 15/33, PWM **off** on 32, and SPI off → **`pwm_bench.py` with the
+   motor battery
    disconnected** confirms both PWM chips enabled with nonzero duty in
    `/sys/kernel/debug/pwm` → deadman stops wheels < 300 ms → direction mapping
    verified **before** floor driving.
