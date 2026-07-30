@@ -36,7 +36,7 @@ html, body {
 .banner.warn  { top: 6px;  color: var(--accent); border-color: var(--accent); background: #201700e6; }
 .banner.stall { top: 42px; color: var(--bad); border-color: var(--bad); background: #240b0be6; animation: blink 0.8s step-end infinite; }
 .banner.dead  { top: 80px; color: var(--dim); border-color: var(--dim); background: #101311e6; }
-.hidden { display: none; }
+.hidden { display: none !important; }
 @keyframes blink { 50% { border-color: transparent; } }
 
 #reset-btn {
