@@ -2,8 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d0f0e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eceae3" media="(prefers-color-scheme: light)">
 <title>RC CAR // CONTROL</title>
+<!-- Theme bootstrap. Runs BEFORE the stylesheet is applied so a light-mode
+     machine never flashes the dark skin on load. Resolves "system" here; the
+     rest of the app only ever reads <html data-theme>. -->
+<script>
+(function () {
+  var r = document.documentElement, pref = "system";
+  try { pref = localStorage.getItem("rccar-theme") || "system"; } catch (e) {}
+  if (pref !== "light" && pref !== "dark") pref = "system";
+  r.setAttribute("data-pref", pref);
+  r.setAttribute("data-theme", pref !== "system" ? pref :
+    (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light" : "dark"));
+})();
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,8 +31,30 @@
   <div id="dead-banner" class="banner dead hidden">DEADMAN</div>
 </div>
 
-<!-- top-right tab that opens the Autonomy Lab -->
-<button id="lab-open" title="Autonomy Lab">▤ LAB</button>
+<!-- top-right controls: theme cycle + the Autonomy Lab tab -->
+<div id="top-controls">
+  <button id="theme-btn" type="button" title="Theme: follow system" aria-label="Theme: follow system">
+    <!-- half-filled disc = follow system -->
+    <svg class="ic-system" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.8" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5"/>
+      <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/>
+    </svg>
+    <svg class="ic-light" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.2"/>
+      <path d="M12 1.8v2.6M12 19.6v2.6M22.2 12h-2.6M4.4 12H1.8
+               M19.2 4.8l-1.9 1.9M6.7 17.3l-1.9 1.9
+               M19.2 19.2l-1.9-1.9M6.7 6.7L4.8 4.8"/>
+    </svg>
+    <svg class="ic-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20.5 14.6A8.8 8.8 0 0 1 9.4 3.5a8.9 8.9 0 1 0 11.1 11.1z"/>
+    </svg>
+    <span class="theme-tag" id="theme-tag">AUTO</span>
+  </button>
+  <button id="lab-open" type="button" title="Autonomy Lab">▤ LAB</button>
+</div>
 
 <main id="grid" class="stale">
   <!-- left column: telemetry -->

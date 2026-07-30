@@ -7,6 +7,9 @@
      drive; {"type":"release"} gives it up. The button grays out while
      someone else holds control and ungrays the moment they release or
      disconnect. Enforcement is SERVER-side; this UI is convenience only.
+   - THEME: light/dark/follow-system, cycled from the top-right control and
+     persisted in localStorage. Resolved to <html data-theme> by a bootstrap
+     script in index.html so there is no flash of the wrong skin on load.
    - AUTONOMY LAB: slide-out panel toggles sensor mode + motor output,
      edits the dummy scenario and the policy target, engages/disengages
      the policy, and shows a live observability panel.
@@ -57,20 +60,54 @@ const ctx = canvas.getContext("2d");
 let stickX = 0, stickY = 0;        // -1..1, y positive = forward
 let pointerId = null;
 
+// ---- canvas theming -------------------------------------------------------
+// Canvases cannot use CSS variables, so both of them read the resolved tokens
+// off :root instead of hardcoding hex. themeCache is cleared whenever the
+// theme changes; without the cache this would run getComputedStyle 20x/s.
+let themeCache = null;
+function themeColors() {
+  if (themeCache) return themeCache;
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n) => cs.getPropertyValue(n).trim();
+  themeCache = {
+    edge: v("--edge"), panel: v("--panel"),
+    accent: v("--accent"), info: v("--info"), bad: v("--bad"),
+    knobHi: v("--knob-hi"), knobLo: v("--knob-lo"),
+  };
+  return themeCache;
+}
+
+// Size the backing store to the device pixel ratio so the stick and the trace
+// are crisp on phones, and hand back the CSS-pixel box to draw in.
+function fitCanvas(cv, c) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const rect = cv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width));
+  const h = Math.max(1, Math.round(rect.height));
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+  }
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);   // reset every frame: resizing clears it
+  return { w, h };
+}
+
 function drawStick() {
-  const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2;
+  const t = themeColors();
+  const { w, h } = fitCanvas(canvas, ctx);
+  const cx = w / 2, cy = h / 2;
   const R = w * 0.42, r = w * 0.13;
   ctx.clearRect(0, 0, w, h);
   // well
-  ctx.strokeStyle = "#2a312d"; ctx.lineWidth = 2;
+  ctx.strokeStyle = t.edge; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
-  ctx.strokeStyle = "#161a18";
+  ctx.strokeStyle = t.panel;
   ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
   ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
   // knob
   const kx = cx + stickX * (R - r), ky = cy - stickY * (R - r);
   const g = ctx.createRadialGradient(kx, ky, 2, kx, ky, r);
-  g.addColorStop(0, "#ffd469"); g.addColorStop(1, "#b87b00");
+  g.addColorStop(0, t.knobHi); g.addColorStop(1, t.knobLo);
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(kx, ky, r, 0, 7); ctx.fill();
 }
@@ -402,10 +439,11 @@ function pushTrace(pol) {
 }
 
 function drawTrace() {
-  const W = traceCanvas.width, H = traceCanvas.height;
+  const t = themeColors();
+  const { w: W, h: H } = fitCanvas(traceCanvas, traceCtx);
   traceCtx.clearRect(0, 0, W, H);
   // center line
-  traceCtx.strokeStyle = "#2a312d";
+  traceCtx.strokeStyle = t.edge;
   traceCtx.beginPath(); traceCtx.moveTo(0, H/2); traceCtx.lineTo(W, H/2); traceCtx.stroke();
   const drawSeries = (arr, color, mapY) => {
     traceCtx.strokeStyle = color; traceCtx.lineWidth = 1.2;
@@ -418,10 +456,10 @@ function drawTrace() {
     traceCtx.stroke();
   };
   // throttle/steer in [-1,1] map to [H, 0] with center at H/2
-  drawSeries(traceThrottle, "#ffb000", v => H/2 - v * (H/2 - 4));
-  drawSeries(traceSteer,    "#4aa3ff", v => H/2 - v * (H/2 - 4));
+  drawSeries(traceThrottle, t.accent, v => H/2 - v * (H/2 - 4));
+  drawSeries(traceSteer,    t.info,   v => H/2 - v * (H/2 - 4));
   // us-norm in [0,1] map to bottom-half amplitude (0=red spike UP)
-  drawSeries(traceUs,       "#ff4444", v => H - v * (H - 4));
+  drawSeries(traceUs,       t.bad,    v => H - v * (H - 4));
 }
 
 function renderLab(f) {
@@ -494,3 +532,74 @@ function renderLab(f) {
     drawTrace();
   }
 }
+
+
+// =====================================================================
+// THEME
+// Three-state cycle: follow system -> light -> dark -> follow system.
+// "system" is the default and is what ships with a fresh browser profile.
+// index.html has already resolved and applied a theme before first paint;
+// this block only handles changes made after load.
+// =====================================================================
+const THEME_KEY = "rccar-theme";
+const THEME_ORDER = ["system", "light", "dark"];
+const THEME_TAG = { system: "AUTO", light: "LIGHT", dark: "DARK" };
+const mqLight = window.matchMedia
+  ? window.matchMedia("(prefers-color-scheme: light)") : null;
+
+function readThemePref() {
+  try {
+    const p = localStorage.getItem(THEME_KEY);
+    if (p === "light" || p === "dark") return p;
+  } catch (e) { /* private mode / storage disabled: fall back to system */ }
+  return "system";
+}
+
+function applyTheme(pref) {
+  const resolved = pref === "system"
+    ? (mqLight && mqLight.matches ? "light" : "dark")
+    : pref;
+  const root = document.documentElement;
+  root.setAttribute("data-pref", pref);
+  root.setAttribute("data-theme", resolved);
+
+  const btn = $("theme-btn");
+  const label = pref === "system"
+    ? `Theme: follow system (currently ${resolved})`
+    : `Theme: ${pref}`;
+  btn.title = label;
+  btn.setAttribute("aria-label", label);
+  $("theme-tag").textContent = THEME_TAG[pref];
+
+  themeCache = null;          // tokens changed under us
+  drawStick();
+  drawTrace();
+}
+
+$("theme-btn").addEventListener("click", () => {
+  const next = THEME_ORDER[(THEME_ORDER.indexOf(readThemePref()) + 1) % THEME_ORDER.length];
+  try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* non-fatal */ }
+  applyTheme(next);
+});
+
+// Live-follow the OS while the preference is "system".
+if (mqLight) {
+  const onSystemChange = () => {
+    if (readThemePref() === "system") applyTheme("system");
+  };
+  if (mqLight.addEventListener) mqLight.addEventListener("change", onSystemChange);
+  else if (mqLight.addListener) mqLight.addListener(onSystemChange);   // Safari < 14
+}
+
+applyTheme(readThemePref());
+
+// Rotating the phone or resizing changes the CSS box of both canvases, so the
+// DPR-sized backing store has to be rebuilt. Debounced: orientationchange can
+// fire several times mid-rotation.
+let resizeTimer = null;
+function onViewportChange() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { drawStick(); drawTrace(); }, 120);
+}
+window.addEventListener("resize", onViewportChange);
+window.addEventListener("orientationchange", onViewportChange);

@@ -573,6 +573,37 @@ board. jetson-io should have been checked before the claim was written down.
 **Next:** unchanged from yesterday, plus — verify PWM is disabled for pin 32 in
 jetson-io before trusting any front ultrasonic reading.
 
+## 2026-07-30 — Pilot UI: light theme + mobile responsive
+
+The browser client was dark-only and laid out for desktop landscape. Added a
+light skin, a theme control, and real responsive behaviour. Client-side only —
+no Python touched, so no change to the safety loop or telemetry protocol.
+
+Light mode is a token override, not an inversion: warm paper, graphite ink,
+burnt amber. Required tokenising colours that were still literal hex (inset
+wells, banner grounds, text-on-fill, shadow, stale filter, joystick knob
+gradient). Contrast measured on both palettes — light clears 4.5:1 throughout.
+Dark's --dim is 3.28:1 on --panel, which predates this work; left as-is, but
+--dim: #7d9186 would fix it if we want to.
+
+Theme cycles system → light → dark, defaults to system, persists in
+localStorage, and live-follows the OS while on system. Resolved before first
+paint by an inline script in index.html to avoid a flash of the wrong skin.
+Canvases read tokens off :root (cached) since they can't use CSS variables.
+
+Three mobile defects found and fixed while testing layout:
+- touch-action: none on body blocked touch-scrolling of the sensor column and
+  the Lab body. Both now pan-y with overscroll containment.
+- Joystick and trace canvases were fixed-size backing stores stretched by CSS,
+  so blurry on any hi-DPI screen. Now DPR-scaled and redrawn on rotate.
+- No safe-area handling. Added viewport-fit=cover and env() insets.
+
+Kept user-scalable=no: an accessibility cost, accepted because a pinch-zoom
+mid-drive is worse on a control surface.
+
+**Next:** verify on the actual phone in daylight — the light palette is
+measured, not eyeballed. Decide on the dark --dim contrast fix.
+
 ---
 
 ## Glossary

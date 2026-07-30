@@ -1,17 +1,90 @@
-/* RC CAR control panel — dark industrial instrument aesthetic.
-   Served offline from the Jetson: no external fonts, no assets. */
+/* RC CAR control panel — industrial instrument aesthetic, two skins.
+   Served offline from the Jetson: no external fonts, no assets.
+
+   THEMING
+   -------
+   :root carries the DARK tokens. :root[data-theme="light"] overrides them.
+   The resolved theme is always written to <html data-theme> by the bootstrap
+   script in index.html, so CSS never has to evaluate prefers-color-scheme
+   itself — "follow system" is resolved in JS and re-resolved live when the OS
+   flips. Nothing outside this token block should hardcode a colour.
+
+   Light mode is not an inversion. It is a daylight instrument panel: warm
+   paper, graphite ink, burnt amber. The accent darkens to stay legible on a
+   light ground, and the phosphor glows are dropped because they read as smudge
+   rather than light when the background is bright. */
 
 :root {
+  /* surfaces */
   --bg: #0d0f0e;
   --panel: #161a18;
+  --well: #0a0c0b;           /* inset tracks, inputs, canvas grounds */
   --edge: #2a312d;
+  --bg-glow: #17201b;        /* page gradient highlight */
+
+  /* type */
   --ink: #cfe3d6;
   --dim: #5d6f64;
-  --accent: #ffb000;       /* amber instrument glow */
+
+  /* semantics — meaning is identical in both skins */
+  --accent: #ffb000;         /* amber instrument glow */
   --ok: #46e08b;
   --bad: #ff4444;
   --info: #4aa3ff;
+  --on-accent: #0d0f0e;      /* type sitting ON a filled semantic colour */
+  --accent-soft: #201700;    /* tinted fill behind accent-coloured type */
+
+  /* banner grounds (alpha so telemetry stays faintly visible behind) */
+  --warn-bg: #201700e6;
+  --stall-bg: #240b0be6;
+  --dead-bg: #101311e6;
+
+  /* effects */
+  /* joystick knob gradient — canvas cannot read CSS vars, app.js reads these */
+  --knob-hi: #ffd469;
+  --knob-lo: #b87b00;
+
+  --glow-ok: 0 0 8px var(--ok);
+  --glow-accent: 0 0 10px var(--accent);
+  --shadow: #0007;
+  --stale-filter: grayscale(1) brightness(0.55);
+
   --mono: "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* responsive rhythm — overridden in the compact breakpoints */
+  --gap: 10px;
+  --card-pad: 8px 10px;
+}
+
+:root[data-theme="light"] {
+  --bg: #eceae3;
+  --panel: #f8f6f1;
+  --well: #e0dcd2;
+  --edge: #c4bfb2;
+  --bg-glow: #fffdf6;
+
+  --ink: #21252a;
+  --dim: #63685f;            /* 4.6:1 on --panel */
+
+  --accent: #96560a;         /* burnt amber, 5.4:1 on --panel */
+  --ok: #16704a;
+  --bad: #b3241c;
+  --info: #1b5798;
+  --on-accent: #fffdf7;
+  --accent-soft: #f2e6d2;
+
+  --warn-bg: #fbf0d8f0;
+  --stall-bg: #f8dedbf0;
+  --dead-bg: #e7e4dcf0;
+
+  --knob-hi: #d4913b;
+  --knob-lo: #7a4304;
+
+  /* glows read as smudge on a light ground — trade them for a crisp ring */
+  --glow-ok: 0 0 0 2px #16704a33;
+  --glow-accent: 0 0 0 2px #96560a33;
+  --shadow: #6b634e40;
+  --stale-filter: grayscale(1) opacity(0.45);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -19,7 +92,7 @@
 html, body {
   height: 100%;
   background:
-    radial-gradient(1200px 500px at 70% -10%, #17201b 0%, var(--bg) 60%);
+    radial-gradient(1200px 500px at 70% -10%, var(--bg-glow) 0%, var(--bg) 60%);
   color: var(--ink);
   font-family: var(--mono);
   overflow: hidden;
@@ -27,37 +100,73 @@ html, body {
   user-select: none;
 }
 
+/* Colour-scheme hint so form controls, scrollbars and the checkbox in the Lab
+   are painted by the UA in the matching skin. */
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+
 /* ---------- banners ---------- */
 .banner {
   position: fixed; left: 50%; transform: translateX(-50%);
   z-index: 20; padding: 6px 18px; font-weight: 700; letter-spacing: 2px;
   border: 1px solid; font-size: 14px;
+  max-width: calc(100vw - 20px); text-align: center;
 }
-.banner.warn  { top: 6px;  color: var(--accent); border-color: var(--accent); background: #201700e6; }
-.banner.stall { top: 42px; color: var(--bad); border-color: var(--bad); background: #240b0be6; animation: blink 0.8s step-end infinite; }
-.banner.dead  { top: 80px; color: var(--dim); border-color: var(--dim); background: #101311e6; }
+.banner.warn  { top: calc(6px + env(safe-area-inset-top));  color: var(--accent); border-color: var(--accent); background: var(--warn-bg); }
+.banner.stall { top: calc(42px + env(safe-area-inset-top)); color: var(--bad); border-color: var(--bad); background: var(--stall-bg); animation: blink 0.8s step-end infinite; }
+.banner.dead  { top: calc(80px + env(safe-area-inset-top)); color: var(--dim); border-color: var(--dim); background: var(--dead-bg); }
 .hidden { display: none !important; }
 @keyframes blink { 50% { border-color: transparent; } }
 
 #reset-btn {
-  margin-left: 12px; font: inherit; color: var(--bg); background: var(--bad);
+  margin-left: 12px; font: inherit; color: var(--on-accent); background: var(--bad);
   border: 0; padding: 3px 14px; cursor: pointer; letter-spacing: 2px;
 }
 
+/* ---------- top-right controls ---------- */
+#top-controls {
+  position: fixed; z-index: 30;
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(10px + env(safe-area-inset-right));
+  display: flex; gap: 6px; align-items: stretch;
+}
+#top-controls button {
+  font: inherit; font-size: 11px; letter-spacing: 3px;
+  color: var(--dim); background: var(--panel);
+  border: 1px solid var(--edge); padding: 6px 12px;
+  cursor: pointer; display: flex; align-items: center; gap: 6px;
+}
+#top-controls button:hover { color: var(--accent); border-color: var(--accent); }
+
+#theme-btn { padding: 6px 10px; }
+#theme-btn svg { width: 15px; height: 15px; display: none; }
+#theme-btn .theme-tag {
+  font-size: 9px; letter-spacing: 2px;
+}
+/* show only the glyph matching the user's PREFERENCE, not the resolved theme —
+   the point of the control is to say what mode you asked for */
+:root[data-pref="system"] #theme-btn .ic-system,
+:root[data-pref="light"]  #theme-btn .ic-light,
+:root[data-pref="dark"]   #theme-btn .ic-dark { display: block; }
+
 /* ---------- layout ---------- */
 #grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-  height: 100%; padding: 10px; align-items: stretch;
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap);
+  height: 100%; align-items: stretch;
+  padding: calc(var(--gap) + env(safe-area-inset-top))
+           calc(var(--gap) + env(safe-area-inset-right))
+           calc(var(--gap) + env(safe-area-inset-bottom))
+           calc(var(--gap) + env(safe-area-inset-left));
 }
 .col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-#col-sensors { overflow-y: auto; }
+#col-sensors { overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; }
 #col-stick { align-items: center; justify-content: center; }
 
 .card {
   background: var(--panel);
   border: 1px solid var(--edge);
   border-left: 3px solid var(--accent);
-  padding: 8px 10px;
+  padding: var(--card-pad);
 }
 .card h2 {
   font-size: 10px; letter-spacing: 3px; color: var(--dim); margin-bottom: 6px;
@@ -65,14 +174,14 @@ html, body {
 .card h2 small { letter-spacing: 1px; text-transform: none; }
 
 /* staleness: gray everything */
-#grid.stale .card { filter: grayscale(1) brightness(0.55); }
+#grid.stale .card { filter: var(--stale-filter); }
 
 /* ---------- ultrasonic bars ---------- */
 .us-row, .duty-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .lbl { width: 44px; font-size: 11px; color: var(--dim); }
 .val { width: 58px; text-align: right; font-size: 14px; color: var(--accent); }
 .bar-track {
-  flex: 1; height: 10px; background: #0a0c0b; border: 1px solid var(--edge);
+  flex: 1; height: 10px; background: var(--well); border: 1px solid var(--edge);
   position: relative; overflow: hidden;
 }
 .bar-fill {
@@ -84,13 +193,13 @@ html, body {
 .ir-dots { display: flex; gap: 10px; justify-content: space-between; padding: 2px 4px; }
 .dot {
   width: 18px; height: 18px; border-radius: 50%;
-  background: #0a0c0b; border: 1px solid var(--edge); position: relative;
+  background: var(--well); border: 1px solid var(--edge); position: relative;
 }
 .dot::after {
   content: attr(data-bit); position: absolute; top: 20px; left: 50%;
   transform: translateX(-50%); font-size: 9px; color: var(--dim);
 }
-.dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); border-color: var(--ok); }
+.dot.on { background: var(--ok); box-shadow: var(--glow-ok); border-color: var(--ok); }
 
 /* ---------- IMU ---------- */
 .imu-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; font-size: 10px; color: var(--dim); }
@@ -98,7 +207,7 @@ html, body {
 .tilt-wrap {
   margin: 8px auto 2px; width: 70px; height: 70px; border-radius: 50%;
   border: 1px solid var(--edge); position: relative;
-  background: radial-gradient(circle, #0a0c0b 0%, var(--panel) 100%);
+  background: radial-gradient(circle, var(--well) 0%, var(--panel) 100%);
 }
 .tilt-wrap::before, .tilt-wrap::after {
   content: ""; position: absolute; background: var(--edge);
@@ -107,14 +216,14 @@ html, body {
 .tilt-wrap::after  { top: 50%; left: 4px; right: 4px; height: 1px; }
 #tilt-bubble {
   position: absolute; width: 12px; height: 12px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 10px var(--accent);
+  background: var(--accent); box-shadow: var(--glow-accent);
   left: 50%; top: 50%; transform: translate(-50%, -50%);
   transition: left 80ms linear, top 80ms linear;
 }
 
 /* ---------- duty bars (bidirectional from center) ---------- */
 .duty-track {
-  flex: 1; height: 14px; background: #0a0c0b; border: 1px solid var(--edge);
+  flex: 1; height: 14px; background: var(--well); border: 1px solid var(--edge);
   position: relative;
 }
 .duty-track::before {
@@ -125,31 +234,31 @@ html, body {
   position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
   background: var(--accent); transition: all 60ms linear;
 }
-.duty-fill.rev { background: #4aa3ff; }
+.duty-fill.rev { background: var(--info); }
 
 .flags { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .flag {
   font-size: 9px; letter-spacing: 2px; padding: 2px 8px;
   border: 1px solid var(--edge); color: var(--dim);
 }
-.flag.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.flag.on { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 #flag-ws.on { background: var(--ok); border-color: var(--ok); }
 #flag-sensor.dummy, #flag-motor.dummy { color: var(--info); border-color: var(--info); }
-#flag-policy.on { color: var(--bg); background: var(--bad); border-color: var(--bad); }
+#flag-policy.on { color: var(--on-accent); background: var(--bad); border-color: var(--bad); }
 
 /* ---------- control switch ---------- */
 /* free: amber TAKE CONTROL | mine: green RELEASE | held by other: grayed IN USE */
 #ctrl-btn {
   font: inherit; font-size: 13px; font-weight: 700; letter-spacing: 3px;
   padding: 10px 26px; margin-bottom: 10px; cursor: pointer;
-  color: var(--accent); background: #201700;
+  color: var(--accent); background: var(--accent-soft);
   border: 1px solid var(--accent);
 }
 #ctrl-btn.mine {
-  color: var(--bg); background: var(--ok); border-color: var(--ok);
+  color: var(--on-accent); background: var(--ok); border-color: var(--ok);
 }
 #ctrl-btn.held {
-  color: var(--dim); background: #101311; border-color: var(--edge);
+  color: var(--dim); background: var(--well); border-color: var(--edge);
   cursor: not-allowed;
 }
 
@@ -159,48 +268,38 @@ html, body {
   height: auto; touch-action: none;
 }
 
-/* portrait fallback (real use is landscape) */
-@media (orientation: portrait) {
-  #grid { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  #stick { width: min(45vh, 90vw); }
-}
-
 /* ============================================================
    AUTONOMY LAB
    ============================================================ */
-#lab-open {
-  position: fixed; top: 10px; right: 10px; z-index: 30;
-  font: inherit; font-size: 11px; letter-spacing: 3px;
-  color: var(--dim); background: var(--panel);
-  border: 1px solid var(--edge); padding: 6px 12px;
-  cursor: pointer;
-}
-#lab-open:hover { color: var(--accent); border-color: var(--accent); }
-
 #lab-panel {
   position: fixed; top: 0; right: 0; bottom: 0;
   width: min(440px, 100vw);
   background: var(--bg);
   border-left: 1px solid var(--edge);
-  box-shadow: -8px 0 24px #0007;
+  box-shadow: -8px 0 24px var(--shadow);
   z-index: 40;
   display: flex; flex-direction: column;
+  padding-right: env(safe-area-inset-right);
 }
 .lab-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px; border-bottom: 1px solid var(--edge);
   background: var(--panel);
+  padding-top: calc(10px + env(safe-area-inset-top));
 }
 .lab-title {
   color: var(--accent); font-weight: 700; letter-spacing: 3px; font-size: 12px;
 }
 #lab-close {
   background: none; border: 0; color: var(--dim); font: inherit;
-  font-size: 16px; cursor: pointer;
+  font-size: 16px; cursor: pointer; padding: 4px 8px;
 }
 #lab-close:hover { color: var(--accent); }
 .lab-body {
   flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px;
+  touch-action: pan-y; overscroll-behavior: contain;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  -webkit-overflow-scrolling: touch;
 }
 
 .lab-card {
@@ -218,10 +317,10 @@ html, body {
 .seg button {
   flex: 1; font: inherit; font-size: 10px; letter-spacing: 2px;
   padding: 8px 4px; cursor: pointer;
-  color: var(--dim); background: #0a0c0b; border: 1px solid var(--edge);
+  color: var(--dim); background: var(--well); border: 1px solid var(--edge);
 }
 .seg button.active {
-  color: var(--bg); background: var(--info); border-color: var(--info);
+  color: var(--on-accent); background: var(--info); border-color: var(--info);
 }
 .seg button.warn.active {
   background: var(--accent); border-color: var(--accent);
@@ -234,22 +333,22 @@ html, body {
 .scenario-grid label { display: flex; flex-direction: column; color: var(--dim); font-size: 10px; }
 .scenario-grid input {
   font: inherit; font-size: 12px; color: var(--ink);
-  background: #0a0c0b; border: 1px solid var(--edge); padding: 4px 6px;
-  margin-top: 2px;
+  background: var(--well); border: 1px solid var(--edge); padding: 4px 6px;
+  margin-top: 2px; min-width: 0;
 }
 
 .ir-editor { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
 .ir-editor .lbl { width: auto; }
 .ir-bit {
   font: inherit; font-size: 10px; padding: 4px 8px;
-  color: var(--dim); background: #0a0c0b; border: 1px solid var(--edge); cursor: pointer;
+  color: var(--dim); background: var(--well); border: 1px solid var(--edge); cursor: pointer;
 }
-.ir-bit.on { color: var(--bg); background: var(--ok); border-color: var(--ok); }
+.ir-bit.on { color: var(--on-accent); background: var(--ok); border-color: var(--ok); }
 
 .lab-primary, .lab-danger {
   width: 100%; margin-top: 8px; font: inherit; font-size: 11px; letter-spacing: 3px;
   padding: 8px; cursor: pointer;
-  color: var(--bg); background: var(--info); border: 0; font-weight: 700;
+  color: var(--on-accent); background: var(--info); border: 0; font-weight: 700;
 }
 .lab-danger { background: var(--accent); }
 .lab-danger.engaged { background: var(--bad); }
@@ -263,7 +362,7 @@ html, body {
 .target-compass {
   margin: 10px auto 0; width: 120px; height: 120px; border-radius: 50%;
   border: 1px solid var(--edge); position: relative;
-  background: radial-gradient(circle, #0a0c0b 0%, var(--panel) 100%);
+  background: radial-gradient(circle, var(--well) 0%, var(--panel) 100%);
 }
 .tc-ring {
   position: absolute; inset: 8px; border-radius: 50%; border: 1px dashed var(--edge);
@@ -287,7 +386,7 @@ html, body {
 .pol-actions { display: flex; flex-direction: column; gap: 6px; }
 .pol-bar { display: grid; grid-template-columns: 60px 1fr 48px; align-items: center; gap: 8px; font-size: 10px; color: var(--dim); }
 .pb-track {
-  height: 12px; background: #0a0c0b; border: 1px solid var(--edge); position: relative;
+  height: 12px; background: var(--well); border: 1px solid var(--edge); position: relative;
 }
 .pb-track::before {
   content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--edge);
@@ -315,5 +414,81 @@ html, body {
 
 #trace {
   margin-top: 10px; width: 100%; height: 120px;
-  background: #0a0c0b; border: 1px solid var(--edge);
+  background: var(--well); border: 1px solid var(--edge);
+}
+
+/* ============================================================
+   RESPONSIVE
+   The pilot page is a fixed-viewport instrument: it never scrolls as a
+   whole, only the sensor column and the Lab body do. Every breakpoint
+   below preserves that, so the joystick can never be scrolled off screen
+   mid-drive.
+   ============================================================ */
+
+/* ---- PORTRAIT: telemetry on top (scrolls), stick pinned below ---- */
+@media (orientation: portrait) {
+  #grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  #col-stick { padding-top: 4px; }
+  #stick { width: min(52vh, 82vw); }
+  /* the Lab tab sits over the first card in one column — give it room */
+  #col-sensors { padding-top: 40px; }
+}
+
+/* ---- PHONE PORTRAIT: tighter rhythm, stick still thumb-sized ---- */
+@media (orientation: portrait) and (max-width: 560px) {
+  :root { --gap: 7px; --card-pad: 7px 8px; }
+  .card h2 { margin-bottom: 4px; }
+  .imu-grid { grid-template-columns: repeat(2, 1fr); font-size: 11px; }
+  .lbl { width: 38px; }
+  .val { width: 52px; }
+  #stick { width: min(46vh, 88vw); }
+  .flags { gap: 4px; }
+}
+
+/* ---- LANDSCAPE ON A SHORT SCREEN (phone held sideways) ----
+   Real driving posture. Vertical space is the scarce resource, so the
+   chrome shrinks and the stick is sized off height, not width. */
+@media (orientation: landscape) and (max-height: 560px) {
+  :root { --gap: 6px; --card-pad: 5px 8px; }
+  #grid { grid-template-columns: 1.15fr 1fr; }
+  .card h2 { font-size: 9px; margin-bottom: 3px; }
+  .imu-grid { font-size: 9px; }
+  .tilt-wrap { width: 52px; height: 52px; margin: 5px auto 2px; }
+  .dot { width: 15px; height: 15px; }
+  .dot::after { display: none; }        /* labels cost a whole row of height */
+  #ctrl-btn { padding: 8px 18px; font-size: 12px; margin-bottom: 6px; }
+  #stick { width: min(72vh, 92%); }
+  .banner { font-size: 12px; padding: 4px 12px; }
+  .banner.stall { top: calc(34px + env(safe-area-inset-top)); }
+  .banner.dead  { top: calc(64px + env(safe-area-inset-top)); }
+}
+
+/* ---- NARROW: Lab becomes a full-screen sheet ---- */
+@media (max-width: 560px) {
+  #lab-panel { width: 100vw; border-left: 0; }
+  #theme-btn .theme-tag { display: none; }   /* glyph alone; the title still says it */
+  .scenario-grid { grid-template-columns: 1fr; }
+  .pol-obs { grid-template-columns: 1fr; }
+  .pol-bar { grid-template-columns: 52px 1fr 42px; }
+}
+
+/* ---- TOUCH: enlarge every tap target to ~44px ---- */
+@media (pointer: coarse) {
+  #top-controls button { padding: 10px 14px; }
+  .seg button { padding: 13px 4px; }
+  .ir-bit { padding: 10px 12px; }
+  .lab-primary, .lab-danger { padding: 13px; }
+  #lab-close { font-size: 20px; padding: 6px 10px; }
+  .scenario-grid input { padding: 9px 8px; font-size: 16px; }  /* 16px stops iOS zoom-on-focus */
+  .lab-check input { width: 20px; height: 20px; }
+  #reset-btn { padding: 8px 16px; }
+}
+
+/* ---- reduced motion: the stall banner blink is the only decoration ---- */
+@media (prefers-reduced-motion: reduce) {
+  .banner.stall { animation: none; }
+  .bar-fill, .duty-fill, .pb-fill, #tilt-bubble { transition: none; }
 }
