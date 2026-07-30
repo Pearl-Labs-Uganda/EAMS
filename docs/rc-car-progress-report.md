@@ -548,6 +548,31 @@ project-brief.md §7.2 still says "PWM verified on 32/33" and needs updating.
 While in jetson-io: confirm SPI is disabled, or it will claim pins 24/26
 (now IN3/IN4) and the direction writes will be silently ignored.
 
+## 2026-07-30 — Correction: pin 32 IS PWM-capable on our board
+
+Yesterday's entry recorded that BOARD pin 32 is not PWM-capable on Orin Nano.
+That was drawn from published pinouts (JetsonHacks, JETGPIO) which list only
+15 and 33. It is wrong for our JetPack: jetson-io offers PWM on 15, 32 and 33,
+and all three were confirmed working on the hardware.
+
+The ENA 32 → 15 move stands, but the justification changes. Not "32 cannot do
+PWM" — rather that 15 and 33 are on separate PWM controllers and are the pair
+the bench script proved out. Strictly, the ordering bug was the only real
+defect; the pin move was optional. No pin assignments changed today.
+
+New trap the wrong premise had masked: pin 32 now carries US_FRONT_TRIG as a
+plain GPIO output. A pin muxed to the PWM controller ignores GPIO writes, so if
+PWM is left enabled for 32 in jetson-io the trigger pulse never reaches the
+header and the front ultrasonic reads nothing — silently, looking like a dead
+sensor or a bad crimp. config.py and project-brief.md §7.2 both now say to
+leave PWM off for pin 32.
+
+Method note for next time: a published pinout is weaker evidence than the
+board. jetson-io should have been checked before the claim was written down.
+
+**Next:** unchanged from yesterday, plus — verify PWM is disabled for pin 32 in
+jetson-io before trusting any front ultrasonic reading.
+
 ---
 
 ## Glossary
