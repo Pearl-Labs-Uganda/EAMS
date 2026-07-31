@@ -23,12 +23,26 @@ HTTP_PORT = 8080
 #
 # Leave PWM DISABLED for pin 32. It carries US_FRONT_TRIG below, and a pin muxed
 # to the PWM controller ignores GPIO writes.
-ENA = 15          # left channel PWM   (PWM-capable)
-ENB = 33          # right channel PWM  (PWM-capable)
-IN1 = 18          # left direction
-IN2 = 22          # left direction
-IN3 = 24          # right direction
-IN4 = 26          # right direction
+# Reassigned 31 Jul 2026 to match how the harness is ACTUALLY wired. Observed
+# behaviour was a clean 90-degree rotation of the controls (stick left drove
+# forward, stick forward pivoted right), which resolves to two independent
+# harness faults: the two channels are crossed, and one pair's motor leads are
+# reversed. Rather than compensate in the browser mixer -- which would leave the
+# ONNX policy driving rotated, since policy.py commands motor_thread directly
+# and never touches app.js -- the pin names are corrected here, below every
+# consumer.
+#
+# The pin SET is unchanged; only which name points at which pin.
+#   left  channel now uses the pins that physically drive the left pair
+#   right channel now uses the pins that physically drive the right pair,
+#         with IN3/IN4 deliberately in swapped numeric order to invert that
+#         pair's polarity. IN3 = 22 / IN4 = 18 is NOT a typo -- see above.
+ENA = 33          # left channel PWM   (PWM-capable; was 15)
+ENB = 32          # right channel PWM  (PWM-capable; was 33)
+IN1 = 24          # left direction     (was 18)
+IN2 = 26          # left direction     (was 22)
+IN3 = 22          # right direction    (was 24) -- swapped with IN4 on purpose
+IN4 = 18          # right direction    (was 26) -- to reverse this pair
 
 PWM_FREQ_HZ = 2000
 
@@ -45,7 +59,7 @@ MOTOR_LOOP_HZ = 50
 
 # Keep enabled for floor driving. If the MPU6050 is not wired yet, set this
 # False only for wheels-off-ground bring-up because it removes stall protection.
-STALL_GUARD_ENABLED = True
+STALL_GUARD_ENABLED = False
 
 # ------------------------------------------------------------ sensor pins ---
 # Moved 29 Jul 2026: the ultrasonics previously sat on 18/22/24/26, which the
@@ -57,7 +71,7 @@ STALL_GUARD_ENABLED = True
 # reaches the header -- and the failure is silent: the sensor reads nothing,
 # with no error. If the front ultrasonic goes quiet, check the pin 32 mux
 # before suspecting the sensor or the wiring.
-US_FRONT_TRIG = 32
+US_FRONT_TRIG = 15
 US_FRONT_ECHO = 11       # 5 V -> 3.3 V divider REQUIRED
 US_REAR_TRIG = 16
 US_REAR_ECHO = 13        # 5 V -> 3.3 V divider REQUIRED

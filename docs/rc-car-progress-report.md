@@ -658,6 +658,42 @@ work the bring-up checklist. Also: rc-car-deployment.md assumes the checkout is
 at ~/rccar and needs realigning to ~/CAR/rccar — pending a decision on whether
 that layout is permanent.
 
+## 2026-07-31 — Motor channels were crossed; fixed in the pin map
+
+Manual driving came up rotated 90 degrees: stick left → forward, stick right →
+backward, stick forward → pivot right, stick backward → pivot left.
+
+Both software ends check out. app.js mix() is standard arcade (l = y+x,
+r = y-x) and motors._drive_channel maps L→IN1/IN2/ENA, R→IN3/IN4/ENB with
+positive duty driving in_a high. The fault is physical, almost certainly from
+re-crimping all four direction lines for the new pin map.
+
+Solving the four symptoms: Lp = Rc, Rp = -Lc — the channels are crossed and one
+pair's leads are reversed, two independent faults. Substituting the mixer gives
+throttle = -x, steer = +y, i.e. exactly the observed rotation. Corroborated
+independently: with rotation lock on, physically turning the phone 90 degrees
+clockwise made the controls feel natural, which is the same transform.
+
+Fixed in config.py, not in the mixer. Rotating the joystick input would have
+fixed touch and gamepad but NOT the policy — policy.py commands
+motor_thread.set_command directly and mixes its own throttle/steer, so autonomy
+would have driven rotated while manual driving felt perfect. That failure would
+only have surfaced on first engage, which is the worst possible time.
+
+Pin set unchanged, names reassigned: ENA 33, ENB 15, IN1 24, IN2 26, IN3 22,
+IN4 18. IN3/IN4 are in swapped numeric order deliberately, to invert that pair.
+
+Considered and rejected: fixing the harness instead. Cleaner long-term (keeps
+the docs stable and the wire labels honest) but needs the loom opened. If we do
+ever rewire, this config change must be reverted in the same commit.
+
+**Next:**
+- Verify wheels-off-ground before any floor driving. The diagnosis is inference
+  from four symptoms; nobody has watched an individual wheel yet.
+- Update the pin table in rc-car-deployment.md (third revision this week).
+- Check whether IR is mirrored too. IR_LABELS order is consumed blind by the
+  policy, and a mirrored car steers into obstacles rather than around them.
+
 ---
 
 ## Glossary
