@@ -11,8 +11,8 @@ User=jetson
 SupplementaryGroups=gpio i2c
 # Unbuffered, or journalctl -f lags behind the car by whole seconds.
 Environment=PYTHONUNBUFFERED=1
-WorkingDirectory=/home/jetson/rccar
-ExecStart=/home/jetson/rccar/.venv/bin/python server.py
+WorkingDirectory=/home/jetson/CAR/rccar
+ExecStart=/home/jetson/CAR/.venv/bin/python /home/jetson/CAR/rccar/server.py
 Restart=on-failure
 RestartSec=2
 

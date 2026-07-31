@@ -632,6 +632,32 @@ rccar.service: added SupplementaryGroups=gpio i2c and PYTHONUNBUFFERED=1.
 **Next:** audit the remaining docs for the same drift — usb-gadget-setup.md and
 rc-car-requirements.md have not been checked against the current config.py.
 
+## 2026-07-31 — rccar.service path fix; server running under systemd
+
+First systemd install failed 203/EXEC in a restart loop. Cause was mundane: the
+unit hardcoded /home/jetson/rccar/.venv/bin/python, but the checkout is at
+/home/jetson/CAR/rccar with the venv at /home/jetson/CAR/.venv. 203/EXEC is
+systemd failing to exec the file, not a Python error — no traceback to chase.
+
+Diagnostic note: the hostname localhost.localdomain led to an initial guess that
+this was the Fedora dev box, and to wasted theories about SELinux labelling and
+a missing gpio group. It is the Jetson default too. Check the paths first.
+
+Service now starts cleanly. Notable from the first successful boot: GPIO/PWM
+init raised nothing with ENA=15/ENB=33, the ONNX policy loaded, and Flask is
+serving on 0.0.0.0:8080. Init not throwing is encouraging but is NOT proof of a
+waveform — pwm_bench.py still has to run, and it cannot run while the service
+holds the pins.
+
+The service starts with sensor_mode=hardware and motor_output=real. None of the
+bring-up checklist has been completed yet, so it should not be left running or
+enabled at boot until it has.
+
+**Next:** stop the service, run pwm_bench.py with the battery disconnected, then
+work the bring-up checklist. Also: rc-car-deployment.md assumes the checkout is
+at ~/rccar and needs realigning to ~/CAR/rccar — pending a decision on whether
+that layout is permanent.
+
 ---
 
 ## Glossary
