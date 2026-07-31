@@ -38,14 +38,14 @@ header positions, not Raspberry Pi BCM GPIO numbers.
 
 | Function | BOARD pin |
 |---|---:|
-| ENA left PWM | 32 |
+| ENA left PWM | 15 |
 | ENB right PWM | 33 |
-| IN1 left | 11 |
-| IN2 left | 13 |
-| IN3 right | 15 |
-| IN4 right | 16 |
-| US front TRIG/ECHO | 18 / 22 |
-| US rear TRIG/ECHO | 24 / 26 |
+| IN1 left | 18 |
+| IN2 left | 22 |
+| IN3 right | 24 |
+| IN4 right | 26 |
+| US front TRIG/ECHO | 32 / 11 |
+| US rear TRIG/ECHO | 16 / 13 |
 | IR 0..5 | 29, 31, 36, 37, 12, 38 |
 | MPU6050 SDA/SCL | 3 / 5 |
 
@@ -54,9 +54,32 @@ they touch the Jetson header.
 
 ## PWM
 
-BOARD pins 32 and 33 must be configured as PWM outputs with Jetson-IO / pinmux
-tooling for your JetPack image. If PWM is unavailable or unstable on the header,
-use an external PCA9685 PWM board and adapt `hardware.py` for it.
+BOARD pins **15 and 33** must be configured as PWM outputs with Jetson-IO /
+pinmux tooling for your JetPack image:
+
+```bash
+sudo /opt/nvidia/jetson-io/jetson-io.py
+```
+
+Reboot afterwards. Two things to get right in that tool:
+
+- **Leave PWM DISABLED for pin 32.** It offers PWM on this board, but it carries
+  `US_FRONT_TRIG`. A pin muxed to the PWM controller ignores GPIO writes, and the
+  failure is silent — the front ultrasonic simply reads nothing.
+- **Leave SPI disabled.** Pins 24 and 26 are SPI chip-selects by default and now
+  carry IN3/IN4. If SPI claims them, the direction writes are swallowed.
+
+Verify with `pwm_bench.py` (motor battery disconnected — it holds IN1–IN4 low so
+the H-bridge outputs stay off):
+
+```bash
+cd ~/rccar && .venv/bin/python pwm_bench.py
+# in a second terminal:
+sudo cat /sys/kernel/debug/pwm     # both chips enabled, nonzero duty
+```
+
+If PWM is unavailable or unstable on the header, use an external PCA9685 PWM
+board and adapt `hardware.py` for it.
 
 ## IMU
 
@@ -91,13 +114,59 @@ python server.py --dry-run
 
 ## systemd
 
-Edit `rccar.service` if your username is not `jetson`.
+Edit `rccar.service` if your username is not `jetson`, or if the repo is not at
+`/home/jetson/rccar`. The unit runs as an unprivileged user, so that user must
+be in the `gpio` and `i2c` groups (see Install above) — this is the usual reason
+a server that works under `sudo` fails under systemd.
+
+**Do not `enable` the service until wheels-off-ground testing has passed.**
+`enable` makes it start at boot; until direction mapping is verified, an
+unattended server owning the motor pins after a power cut is not what you want.
+
+Install and test, without enabling at boot:
 
 ```bash
 sudo cp ~/rccar/rccar.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now rccar
+sudo systemctl start rccar
 journalctl -u rccar -f
+```
+
+Once you trust it, add boot-time start:
+
+```bash
+sudo systemctl enable rccar
+```
+
+Useful afterwards:
+
+```bash
+sudo systemctl status rccar
+sudo systemctl restart rccar
+sudo systemctl stop rccar
+sudo systemctl disable rccar     # stop starting at boot
+```
+
+### What `Restart=on-failure` means for this car
+
+The deadman is a loop *inside* the Python process. If the process dies, the
+deadman dies with it, but the L298N does not know that and the PWM pins hold
+their last duty. With `RestartSec=2` that is up to two seconds of uncommanded
+driving before the replacement process starts and runs `_all_stop()`.
+
+This is not an argument for removing the restart — an unattended car is better
+off with a server that comes back. It is an argument for keeping the car on
+blocks until the service has proven stable, and for knowing what you are looking
+at if it ever happens.
+
+### AP mode
+
+If `NETWORK_MODE = "ap"`, the server should come up after the access point
+exists. Add to `[Unit]`:
+
+```ini
+After=network-online.target hostapd.service
+Wants=network-online.target
 ```
 
 ## First Hardware Test
@@ -106,7 +175,7 @@ journalctl -u rccar -f
 2. Confirm the L298N 5 V regulator jumper is removed.
 3. Confirm all 5 V sensor outputs are level shifted.
 4. Confirm I2C sees the MPU6050 at `0x68`.
-5. Confirm PWM appears on BOARD pins 32 and 33.
+5. Confirm PWM appears on BOARD pins 15 and 33 (`pwm_bench.py`, battery off).
 6. Take control in the browser and command a small movement.
 7. Close the browser tab and confirm the deadman stops the wheels within 300 ms.
 8. Verify left/right and forward/reverse mapping before floor driving.

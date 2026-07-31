@@ -6,6 +6,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=jetson
+# Jetson.GPIO needs gpio; the MPU6050 needs i2c. Declared here as well as via
+# usermod so the unit still works if the login groups have not been refreshed.
+SupplementaryGroups=gpio i2c
+# Unbuffered, or journalctl -f lags behind the car by whole seconds.
+Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=/home/jetson/rccar
 ExecStart=/home/jetson/rccar/.venv/bin/python server.py
 Restart=on-failure

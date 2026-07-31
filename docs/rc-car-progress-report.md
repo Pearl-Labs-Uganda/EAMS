@@ -604,6 +604,34 @@ mid-drive is worse on a control surface.
 **Next:** verify on the actual phone in daylight — the light palette is
 measured, not eyeballed. Decide on the dark --dim contrast fix.
 
+## 2026-07-30 — Deployment doc pin table corrected; systemd section expanded
+
+rc-car-deployment.md still carried the pre-migration pin map on every row —
+ENA 32, IN1/IN2 11/13, ultrasonics 18/22/24/26. It disagreed with config.py
+completely, and would have produced a fully miswired car. Corrected the pin
+table, the PWM section and hardware-test step 5.
+
+The PWM section now carries what we learned this week: enable 15 and 33 in
+jetson-io, leave PWM off for 32 (it carries US_FRONT_TRIG and a PWM-muxed pin
+ignores GPIO writes), leave SPI off (it would claim 24/26, now IN3/IN4). Both
+failure modes are silent. Added pwm_bench.py as the verification step.
+
+systemd section expanded: start-without-enable until wheels-off-ground passes,
+the gpio/i2c group requirement that makes a working manual run fail under
+systemd, everyday systemctl commands, and AP-mode ordering after hostapd.
+
+Documented a property of the current design rather than changing it: the
+deadman is a loop inside the process, so if the process dies the pins hold
+their last duty until systemd restarts it — up to RestartSec (2 s) of
+uncommanded driving. Not changed, because an unattended car is better off
+restarting than staying down. Worth revisiting if we ever want a hardware
+failsafe (pulldowns on ENA/ENB, or a watchdog that drives them low).
+
+rccar.service: added SupplementaryGroups=gpio i2c and PYTHONUNBUFFERED=1.
+
+**Next:** audit the remaining docs for the same drift — usb-gadget-setup.md and
+rc-car-requirements.md have not been checked against the current config.py.
+
 ---
 
 ## Glossary
