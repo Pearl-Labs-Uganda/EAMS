@@ -694,6 +694,45 @@ ever rewire, this config change must be reverted in the same commit.
 - Check whether IR is mirrored too. IR_LABELS order is consumed blind by the
   policy, and a mirrored car steers into obstacles rather than around them.
 
+## 2026-07-31 — USB webcam feed added to the pilot page
+
+New optional subsystem: camera.py captures from a USB webcam and serves MJPEG
+over multipart/x-mixed-replace at /camera/stream, with /camera/snapshot and
+/camera/status alongside. The browser decodes it natively in an <img>, so no
+client-side decoding and no new frontend dependency.
+
+Built to the policy runner's contract: optional, and incapable of stopping the
+pilot stack booting. Missing cv2, missing device, cable pulled mid-drive — all
+log and retry with backoff. Status is a separate HTTP poll, deliberately NOT a
+telemetry field, so camera trouble cannot perturb the control frame.
+
+One capture thread serves N viewers; the device is released after 5 s idle to
+save power and USB bandwidth. Feed defaults to OFF and persists the choice — it
+shares the link with the 20 Hz command stream and on a weak link it is video or
+responsive control, not both.
+
+Recorded a caveat we should not lose: this is situational awareness, not a
+driving instrument. MJPEG over WiFi is 150–400 ms behind reality, i.e. up to a
+full DEADMAN_S (0.300) of staleness on a bad link. Driving out of line of sight
+on camera alone is not safe with the current stack. Note is in config.py beside
+the resolution settings someone will eventually want to raise.
+
+rc-car-requirements.md had video streaming under "Do not build". Converted to a
+dated scope-change note rather than deleted — the original exclusion was a real
+decision and the history is worth keeping.
+
+**Unverified:** nobody has run this against the actual webcam. Most likely first
+failure is `import cv2` — JetPack ships OpenCV as a system package and the venv
+at ~/CAR/.venv will not see it unless built with --system-site-packages. Also
+assumed CAMERA_DEVICE = 0; confirm with `v4l2-ctl --list-devices`.
+
+**Next:**
+- Confirm cv2 imports in the venv, and the device index.
+- Measure whether an open feed degrades command latency in AP mode before
+  raising resolution or framerate.
+- Possible follow-up: draw overlays on the frame (target bearing, IR state).
+  camera.py already decodes to BGR, so the hook point exists.
+
 ---
 
 ## Glossary

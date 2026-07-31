@@ -314,4 +314,6 @@ The builder should surface these rather than silently assuming:
 
 ## 13. Explicit Non-Goals
 
-Do not build: autonomy, obstacle avoidance, path planning, sensor fusion, odometry, video streaming, data logging, a database, user accounts, or a JS framework. Display and manual control only.
+Do not build: path planning, sensor fusion, odometry, data logging, a database, user accounts, or a JS framework.
+
+Scope changes since this was written (see the logbook): autonomy and obstacle avoidance arrived with the ONNX policy in Phase 2, and a USB webcam MJPEG feed was added on 31 Jul 2026. The camera is an optional subsystem — it must never be able to stop the pilot stack booting, and it is situational awareness only, not a driving instrument.

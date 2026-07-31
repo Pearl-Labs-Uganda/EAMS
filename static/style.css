@@ -176,6 +176,28 @@ html, body {
 /* staleness: gray everything */
 #grid.stale .card { filter: var(--stale-filter); }
 
+/* ---------- camera ---------- */
+#cam-card h2 { display: flex; align-items: center; gap: 8px; }
+#cam-status { margin-left: auto; letter-spacing: 1px; color: var(--dim); }
+#cam-toggle {
+  font: inherit; font-size: 9px; letter-spacing: 2px; cursor: pointer;
+  color: var(--dim); background: var(--well);
+  border: 1px solid var(--edge); padding: 2px 8px;
+}
+#cam-toggle.on { color: var(--on-accent); background: var(--ok); border-color: var(--ok); }
+.cam-frame {
+  position: relative; width: 100%; aspect-ratio: 4 / 3;
+  background: var(--well); border: 1px solid var(--edge);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+#cam-img { width: 100%; height: 100%; object-fit: contain; display: none; }
+#cam-img.live { display: block; }
+.cam-msg {
+  position: absolute; font-size: 10px; letter-spacing: 3px; color: var(--dim);
+  text-align: center; padding: 0 10px;
+}
+.cam-msg.hidden { display: none !important; }
+
 /* ---------- ultrasonic bars ---------- */
 .us-row, .duty-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .lbl { width: 44px; font-size: 11px; color: var(--dim); }
@@ -458,6 +480,7 @@ html, body {
   .imu-grid { font-size: 9px; }
   .tilt-wrap { width: 52px; height: 52px; margin: 5px auto 2px; }
   .dot { width: 15px; height: 15px; }
+  .cam-frame { aspect-ratio: 16 / 9; }
   .dot::after { display: none; }        /* labels cost a whole row of height */
   #ctrl-btn { padding: 8px 18px; font-size: 12px; margin-bottom: 6px; }
   #stick { width: min(72vh, 92%); }

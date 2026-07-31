@@ -603,3 +603,101 @@ function onViewportChange() {
 }
 window.addEventListener("resize", onViewportChange);
 window.addEventListener("orientationchange", onViewportChange);
+
+// =====================================================================
+// CAMERA
+// MJPEG in an <img>. No JS decoding: the browser handles
+// multipart/x-mixed-replace natively, which is both the least code and the
+// lowest latency option available without WebRTC.
+//
+// The feed is deliberately OPT-IN and defaults to off. It shares the WiFi
+// link with the command stream, and on a weak link the honest tradeoff is
+// video OR responsive control, not both. The preference persists.
+//
+// Setting src to "" is what actually closes the HTTP connection and lets the
+// server release the USB device -- merely hiding the element keeps it
+// streaming into a hidden node.
+// =====================================================================
+const CAM_KEY = "rccar-camera";
+const camImg = $("cam-img");
+const camMsg = $("cam-msg");
+const camToggle = $("cam-toggle");
+let camOn = false;
+let camStatusTimer = null;
+
+function camSetMessage(text) {
+  camMsg.textContent = text;
+  camMsg.classList.toggle("hidden", !text);
+}
+
+function camStart() {
+  camOn = true;
+  camToggle.textContent = "ON";
+  camToggle.classList.add("on");
+  camSetMessage("CONNECTING…");
+  camImg.classList.remove("live");
+  // cache-buster: without it a reconnect can be served the dead stream
+  camImg.src = "/camera/stream?t=" + Date.now();
+  camPollStatus();
+  camStatusTimer = setInterval(camPollStatus, 3000);
+}
+
+function camStop() {
+  camOn = false;
+  camToggle.textContent = "OFF";
+  camToggle.classList.remove("on");
+  camImg.classList.remove("live");
+  camImg.src = "";              // closes the connection; frees the device
+  camSetMessage("FEED OFF");
+  $("cam-status").textContent = "—";
+  clearInterval(camStatusTimer);
+  camStatusTimer = null;
+}
+
+camImg.addEventListener("load", () => {
+  if (!camOn) return;
+  camImg.classList.add("live");
+  camSetMessage("");
+});
+camImg.addEventListener("error", () => {
+  if (!camOn) return;
+  camImg.classList.remove("live");
+  camSetMessage("NO SIGNAL — RETRYING");
+  setTimeout(() => { if (camOn) camImg.src = "/camera/stream?t=" + Date.now(); }, 3000);
+});
+
+function camPollStatus() {
+  fetch("/camera/status")
+    .then((r) => r.json())
+    .then((s) => {
+      $("cam-status").textContent =
+        s.state === "streaming" ? `${s.fps.toFixed(0)} fps` : s.state;
+      if (s.state === "unavailable" || s.state === "error") {
+        camImg.classList.remove("live");
+        camSetMessage((s.error || "CAMERA UNAVAILABLE").toUpperCase().slice(0, 120));
+      }
+    })
+    .catch(() => { $("cam-status").textContent = "?"; });
+}
+
+camToggle.addEventListener("click", () => {
+  const next = !camOn;
+  try { localStorage.setItem(CAM_KEY, next ? "on" : "off"); } catch (e) { /* non-fatal */ }
+  if (next) camStart(); else camStop();
+});
+
+// Stop paying for frames the moment the tab is backgrounded.
+document.addEventListener("visibilitychange", () => {
+  if (!camOn) return;
+  if (document.hidden) {
+    camImg.src = "";
+  } else {
+    camImg.src = "/camera/stream?t=" + Date.now();
+  }
+});
+
+(function camInit() {
+  let want = "off";
+  try { want = localStorage.getItem(CAM_KEY) || "off"; } catch (e) {}
+  if (want === "on") camStart(); else camStop();
+})();

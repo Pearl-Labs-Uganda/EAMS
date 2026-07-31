@@ -59,6 +59,17 @@
 <main id="grid" class="stale">
   <!-- left column: telemetry -->
   <section class="col" id="col-sensors">
+    <div class="card" id="cam-card">
+      <h2>CAMERA
+        <small id="cam-status">—</small>
+        <button id="cam-toggle" type="button" title="stop/start the feed">OFF</button>
+      </h2>
+      <div class="cam-frame">
+        <img id="cam-img" alt="forward camera">
+        <div class="cam-msg" id="cam-msg">FEED OFF</div>
+      </div>
+    </div>
+
     <div class="card">
       <h2>RANGE</h2>
       <div class="us-row">

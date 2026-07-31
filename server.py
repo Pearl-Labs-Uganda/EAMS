@@ -25,7 +25,7 @@ import sys
 import threading
 import time
 
-from flask import Flask, send_from_directory
+from flask import Flask, Response, jsonify, send_from_directory
 from flask_sock import Sock
 
 import config
@@ -77,6 +77,9 @@ def make_hardware(dry_run):
         log.error("cannot initialize Jetson GPIO/I2C backend: %s", e)
         sys.exit(1)
 
+
+camera_thread = None          # optional; None when unavailable
+CAM_BOUNDARY = "frame"        # must match camera.BOUNDARY
 
 app = Flask(__name__, static_folder=None)
 sock = Sock(app)
@@ -161,6 +164,36 @@ def index():
 @app.route("/<path:path>")
 def static_files(path):
     return send_from_directory("static", path)
+
+
+# ------------------------------------------------------------------- camera
+# Kept off the telemetry WebSocket on purpose: a stuttering camera must not be
+# able to perturb the control frame. These are plain HTTP and entirely
+# separate from the drive path.
+@app.route("/camera/stream")
+def camera_stream():
+    if camera_thread is None:
+        return ("camera unavailable", 503)
+    return Response(camera_thread.mjpeg(),
+                    mimetype=f"multipart/x-mixed-replace; boundary={CAM_BOUNDARY}")
+
+
+@app.route("/camera/snapshot")
+def camera_snapshot():
+    if camera_thread is None:
+        return ("camera unavailable", 503)
+    frame = camera_thread.snapshot()
+    if frame is None:
+        return ("no frame", 503)
+    return Response(frame, mimetype="image/jpeg")
+
+
+@app.route("/camera/status")
+def camera_status():
+    if camera_thread is None:
+        return jsonify({"state": "unavailable", "error": None,
+                        "fps": 0.0, "viewers": 0})
+    return jsonify(camera_thread.status())
 
 
 # --------------------------------------------------------- telemetry
@@ -352,6 +385,8 @@ def main():
                     help="initial sensor mode (Autonomy Lab can switch at runtime)")
     ap.add_argument("--motor-output", choices=("real", "dummy"), default="real",
                     help="initial motor output mode (Autonomy Lab can switch)")
+    ap.add_argument("--no-camera", action="store_true",
+                    help="skip starting the webcam capture thread")
     ap.add_argument("--no-policy", action="store_true",
                     help="skip loading the ONNX policy even if the file exists")
     args = ap.parse_args()
@@ -377,6 +412,20 @@ def main():
                       "Autonomy Lab will show as unavailable", e)
             policy_runner = None
 
+    # Camera: optional, exactly like the policy runner. A missing webcam, a
+    # missing OpenCV or an unplugged cable must never stop the pilot stack
+    # booting -- the car has to stay drivable with a dead camera.
+    global camera_thread
+    if not args.no_camera and config.CAMERA_ENABLED:
+        try:
+            from camera import CameraThread
+            camera_thread = CameraThread()
+            camera_thread.start()
+        except Exception as e:                              # noqa: BLE001
+            log.error("camera not started (%s); pilot stack up, "
+                      "video will show as unavailable", e)
+            camera_thread = None
+
     did_shutdown = False
 
     def shutdown(*_):
@@ -388,6 +437,8 @@ def main():
         if policy_runner is not None:
             policy_runner.disengage()
             policy_runner.stop()
+        if camera_thread is not None:
+            camera_thread.stop()
         motor_thread.shutdown()
         sensor_thread.stop()
         try:
@@ -404,11 +455,12 @@ def main():
     if policy_runner is not None:
         policy_runner.start()
 
-    log.info("mode=%s  sensor_mode=%s  motor_output=%s  policy=%s  "
+    log.info("mode=%s  sensor_mode=%s  motor_output=%s  policy=%s  camera=%s  "
              "http://%s:%d",
              config.NETWORK_MODE, args.sensor_mode,
              "real" if motor_thread.output_enabled else "dummy",
              "loaded" if policy_runner is not None else "unavailable",
+             "on" if camera_thread is not None else "off",
              config.HTTP_HOST, config.HTTP_PORT)
     app.run(host=config.HTTP_HOST, port=config.HTTP_PORT, threaded=True)
 

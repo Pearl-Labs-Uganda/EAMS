@@ -94,6 +94,23 @@ SENSOR_TICK_HZ = 20
 US_TIMEOUT_S = 0.030
 US_MAX_VALID_CM = 350
 
+# ------------------------------------------------------------------ camera ---
+# USB webcam, mounted forward on the car. Optional: if any of this fails the
+# server still boots and the car stays drivable (see camera.py).
+#
+# The feed is SITUATIONAL AWARENESS, not a driving instrument. MJPEG over WiFi
+# lands somewhere around 150-400 ms behind reality, and degrades further as the
+# link does. DEADMAN_S is 0.300 -- so on a bad link the video can be a whole
+# deadman period stale. Do not drive out of line of sight on camera alone.
+CAMERA_ENABLED = True
+CAMERA_DEVICE = 0            # /dev/video0
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 480
+CAMERA_FPS = 15
+CAMERA_JPEG_QUALITY = 70     # 60-75 is the sweet spot; 90+ costs bandwidth
+                             # that the control path also needs in AP mode
+CAMERA_IDLE_RELEASE_S = 5.0  # release the USB device when nobody is watching
+
 # ---------------------------------------------------------------- protocol ---
 TELEMETRY_HZ = 20
 CMD_RATE_HZ = 20

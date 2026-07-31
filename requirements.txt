@@ -4,3 +4,6 @@ Jetson.GPIO>=2.1
 smbus2>=0.4
 onnxruntime>=1.17
 numpy>=1.24
+# Camera. On JetPack, OpenCV is a SYSTEM package -- prefer building the
+# venv with --system-site-packages over installing this wheel on ARM.
+opencv-python-headless>=4.8
