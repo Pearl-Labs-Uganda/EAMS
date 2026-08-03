@@ -86,7 +86,18 @@ IR_PINS = [29, 31, 36, 37, 12, 38]
 IR_LABELS = ["FL", "FR", "RL", "RR", "L", "R"]
 
 # Jetson 40-pin header I2C bus. MPU6050 SDA/SCL go to physical pins 3/5.
-I2C_BUS = 1
+#
+# Corrected 3 Aug 2026: this was 1, and the IMU never came up. On the Orin Nano
+# the pin 3/5 pair is /dev/i2c-7, NOT i2c-1. Bus 1 is the number carried over
+# from Raspberry Pi (and from the older Jetson Nano, where 3/5 really is bus 1),
+# and nearly every tutorial repeats it -- it is wrong for this board. The
+# failure looks like a dead sensor, not a config error: smbus2 happily opens
+# /dev/i2c-1, and only the first register write fails, which sensors.py catches
+# and downgrades to "MPU6050 init failed".
+#
+# To confirm on any given board, don't trust a pinout: run `i2cdetect -y 7` and
+# look for 0x68. `ls /dev/i2c-*` shows which buses exist at all.
+I2C_BUS = 7
 MPU6050_ADDR = 0x68
 
 # --------------------------------------------------------- sensor sampling ---
