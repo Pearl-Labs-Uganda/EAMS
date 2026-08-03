@@ -58,7 +58,7 @@ positions.
 | US rear TRIG | 24 | out | |
 | US rear ECHO | 26 | in | 5 V to 3.3 V divider required |
 | IR 0..5 | 29,31,36,37,12,38 | in | Dividers required if modules output 5 V |
-| MPU6050 SDA/SCL | 3/5 | I2C | Expect `0x68` on bus 1 |
+| MPU6050 SDA/SCL | 3/5 | I2C | Expect `0x68` on bus **7** (`i2cdetect -y 7`) |
 
 ## Run
 
@@ -82,7 +82,8 @@ Open `http://<jetson-ip>:8080`.
 1. Put the car on blocks with wheels free.
 2. Confirm L298N 5 V regulator jumper is removed.
 3. Confirm all 5 V sensor outputs are level shifted before reaching the Jetson.
-4. Confirm `i2cdetect -y 1` shows the MPU6050 at `0x68`.
+4. Confirm `i2cdetect -y 7` shows the MPU6050 at `0x68`. On the Orin Nano,
+   header pins 3/5 are `/dev/i2c-7`, not bus 1 as most Pi/Jetson-Nano guides say.
 5. Verify PWM appears on BOARD pins 32 and 33.
 6. Verify the deadman: take control, command motion, close the tab, and confirm wheels stop within 300 ms.
 7. Verify direction mapping before the car touches the floor.

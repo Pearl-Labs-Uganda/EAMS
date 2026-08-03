@@ -83,15 +83,27 @@ board and adapt `hardware.py` for it.
 
 ## IMU
 
-The MPU6050 should appear at `0x68`:
+Fitted and working as of 3 Aug 2026. The MPU6050 appears at `0x68` on **bus 7**:
 
 ```bash
-i2cdetect -y 1
+i2cdetect -y 7
 ```
 
-`STALL_GUARD_ENABLED` is `True` by default. If the IMU is absent, the car will
-stall-cut because it cannot prove motion. Only disable the stall guard for
-wheels-off-ground tests.
+**Bus 7, not bus 1.** On the Orin Nano the 40-pin header's SDA/SCL (physical
+pins 3/5) is `/dev/i2c-7`. Bus 1 is the Raspberry Pi / Jetson Nano number and is
+repeated by most tutorials; it is wrong for this board. `config.I2C_BUS = 7`.
+The failure mode is deceptive: opening the wrong bus succeeds and only the first
+register write fails, so it presents as a dead sensor rather than a config error.
+`ls /dev/i2c-*` lists the buses that actually exist.
+
+The service user must be in the `i2c` group (see Install above) or
+`/dev/i2c-7` is unreadable and the IMU appears absent for a different reason.
+
+`STALL_GUARD_ENABLED` is now `True` in `config.py`, restoring stall protection.
+If the IMU stops responding, the car will stall-cut after 1 s because it cannot
+prove motion — that is the guard working, not a bug. Note that the guard reads
+CHASSIS rotation from the gyro, so on blocks it may stall-cut even with the
+wheels spinning normally; validate the threshold on the floor.
 
 ## Run Manually
 
@@ -174,7 +186,7 @@ Wants=network-online.target
 1. Put the car on blocks.
 2. Confirm the L298N 5 V regulator jumper is removed.
 3. Confirm all 5 V sensor outputs are level shifted.
-4. Confirm I2C sees the MPU6050 at `0x68`.
+4. Confirm `i2cdetect -y 7` sees the MPU6050 at `0x68`.
 5. Confirm PWM appears on BOARD pins 15 and 33 (`pwm_bench.py`, battery off).
 6. Take control in the browser and command a small movement.
 7. Close the browser tab and confirm the deadman stops the wheels within 300 ms.

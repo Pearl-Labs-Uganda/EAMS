@@ -51,7 +51,8 @@ human *choosing the destination* with language understanding.
 - **Drivetrain:** 4× TT gear motors, **two paralleled per L298N channel** (left
   pair → channel A, right pair → channel B). **One L298N** by hard constraint.
 - **Sensors:** 2× ultrasonic (front + rear), 6× IR proximity (LM393), 1× MPU6050
-  IMU (I²C). *The IMU is not physically installed yet — see §6.*
+  IMU (I²C **bus 7**, addr `0x68`). *IMU fitted and reading as of 3 Aug 2026 —
+  see §6.2.*
 - **Power:** 3S Li-ion pack direct to the L298N motor rail; LM2596 buck →
   5 V logic/sensor rail. L298N onboard 5 V regulator jumper **removed**.
 - **Pin map:** `config.py` (Jetson.GPIO **BOARD** numbering) is the **single
@@ -131,11 +132,23 @@ These are the things most likely to trip up a new contributor.
    `eams-pi`, BCM numbering, USB-gadget link). The migration happened; not all
    prose caught up. **`config.py` is authoritative for pins.**
 
-2. **IMU not installed → stall guard effectively off.** Running with
-   `STALL_GUARD_ENABLED = False` has been the accepted operating state, so the
-   **55 % duty cap is currently the only thermal protection**. This is why
-   current-sensing / a non-IMU stall detector matters — `eams_rover_sim`
-   prototypes exactly that (high current + no motion → latch).
+2. **IMU now working; stall guard re-enabled, but untuned.** *(Updated 3 Aug
+   2026.)* The MPU6050 is fitted and reading. The blocker was the I²C bus
+   number: the Orin Nano's header pins 3/5 are **`/dev/i2c-7`**, not bus 1 —
+   bus 1 is the Raspberry Pi / Jetson Nano number that most guides repeat.
+   `config.I2C_BUS = 7` and `STALL_GUARD_ENABLED = True`, so the duty cap is no
+   longer the *only* thermal protection.
+
+   Two caveats before treating the stall guard as trustworthy:
+   - **`STALL_GYRO_THRESHOLD_COUNTS = 400` (~3 °/s) has never been validated
+     against real IMU data.** Too low and drivetrain vibration reads as motion
+     and the guard never fires; too high and it false-trips while driving.
+   - **The guard senses chassis rotation, not wheel rotation.** On blocks the
+     chassis is still, so wheels-off testing can stall-cut with nothing wrong —
+     and conversely, a car wedged against a wall with wheels slipping may still
+     register enough vibration to look "moving". A current-sense detector
+     (prototyped in `eams_rover_sim`: high current + no motion → latch) remains
+     the better primitive and is still worth building.
 
 3. **The RL policy and the broad simulator target slightly different robots.**
    The policy assumes the real minimal suite (ultrasonic + IR + a target). The
@@ -176,8 +189,11 @@ These are the things most likely to trip up a new contributor.
    PWM on 15/33, PWM **off** on 32, and SPI off → **`pwm_bench.py` with the
    motor battery
    disconnected** confirms both PWM chips enabled with nonzero duty in
-   `/sys/kernel/debug/pwm` → deadman stops wheels < 300 ms → direction mapping
-   verified **before** floor driving.
+   `/sys/kernel/debug/pwm` → `i2cdetect -y 7` shows `0x68` → deadman stops
+   wheels < 300 ms → direction mapping verified **before** floor driving.
+   Expect the stall guard to trip on blocks (it reads chassis rotation, which
+   is zero there); confirm the RESET button clears the latch rather than
+   chasing it as a fault.
 3. **Service install** (`rccar.service`) once manual run is clean.
 4. **Phase 2 onward:** wire the trained policy's input pipeline (with the adapter
    from §6.4), then define the target/goal source; later, Phase 3 language layer.

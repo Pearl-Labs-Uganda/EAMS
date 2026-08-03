@@ -96,8 +96,8 @@ The build has one L298N by decision. Therefore **the software is the protection*
 | IR 3 | 19 | in | " |
 | IR 4 | 26 | in | " |
 | IR 5 | 21 | in | " |
-| MPU6050 SDA | 2 | I²C | IMU not currently installed — see state docs |
-| MPU6050 SCL | 3 | I²C | IMU not currently installed — see state docs |
+| MPU6050 SDA | 2 | I²C | Pi-era BCM pin. Jetson: header pin 3, bus 7 — see `config.py` |
+| MPU6050 SCL | 3 | I²C | Pi-era BCM pin. Jetson: header pin 5, bus 7 — see `config.py` |
 
 18 pins used. GPIO 14/15 (UART) left free. Separate TRIG per ultrasonic is required — they must fire alternately, not together.
 
@@ -256,7 +256,8 @@ sudo apt install -y pigpio python3-pigpio python3-flask python3-venv
 sudo systemctl enable --now pigpiod
 sudo raspi-config nonint do_i2c 0      # enable I2C for the MPU6050
 ```
-Verify the IMU is visible: `i2cdetect -y 1` → expect `0x68`.
+Verify the IMU is visible: `i2cdetect -y 1` → expect `0x68`. *(Pi-era. On the
+Jetson Orin Nano the header I²C is bus **7**: `i2cdetect -y 7`.)*
 
 **Transfer from the dev machine:**
 ```
