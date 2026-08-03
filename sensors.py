@@ -150,10 +150,18 @@ class SensorThread(threading.Thread):
         try:
             self._i2c = hw.i2c_open(config.I2C_BUS, config.MPU6050_ADDR)
             hw.i2c_write_byte_data(self._i2c, _PWR_MGMT_1, 0x00)   # wake
-            log.info("MPU6050 online at 0x%02x", config.MPU6050_ADDR)
+            log.info("MPU6050 online at 0x%02x on i2c bus %d",
+                     config.MPU6050_ADDR, config.I2C_BUS)
         except Exception as e:                                      # noqa: BLE001
-            log.warning("MPU6050 init failed (%s); IMU zeros in hardware mode, "
-                        "stall guard will not clear motion", e)
+            # Log the bus: opening the wrong /dev/i2c-N succeeds and only the
+            # first write fails, so the bus number is the thing you actually
+            # need to see here. On the Orin Nano, header pins 3/5 are bus 7.
+            log.error("MPU6050 init FAILED on i2c bus %d addr 0x%02x (%s). "
+                      "IMU will report zeros; with STALL_GUARD_ENABLED the "
+                      "motors will stall-cut after %.1f s. Check "
+                      "`i2cdetect -y %d` and config.I2C_BUS.",
+                      config.I2C_BUS, config.MPU6050_ADDR, e,
+                      config.STALL_TIMEOUT_S, config.I2C_BUS)
 
         # --- Dummy state ---------------------------------------------------
         self._scenario_lock = threading.Lock()

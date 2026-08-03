@@ -59,7 +59,8 @@ class JetsonHardware:
             # created actually drives its pin -- the other sits at a fixed
             # level. On an L298N enable line that is a channel which is either
             # dead or stuck fully enabled, and "stuck enabled" bypasses
-            # DUTY_CAP, our only thermal protection while the IMU is missing.
+            # DUTY_CAP. The stall guard cannot save us here either: a stuck-
+            # enabled pin still spins the wheels, so the IMU sees motion.
             # Doing the setup here keeps the pairing correct for any caller.
             #
             # initial=LOW is deliberate. The published workaround uses HIGH,

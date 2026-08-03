@@ -8,7 +8,8 @@ GPIO output mode before either GPIO.PWM() object is constructed, only the
 LAST-constructed PWM channel actually drives its pin. The other sits at a
 static level. On an L298N enable line that means a motor channel that is
 either dead or permanently enabled at 100% duty -- the latter bypasses
-DUTY_CAP, which (with no MPU6050 fitted) is our only thermal protection.
+DUTY_CAP, our last-line thermal protection (and one the stall guard cannot
+backtop, since a stuck-enabled channel still produces motion for the IMU).
 
 This script uses the correct interleaved pattern and reports what the kernel
 thinks each channel is doing, so we confirm rather than assume.
