@@ -54,12 +54,26 @@ SLEW_FULL_SCALE_S = 0.200
 ZERO_CROSS_COAST_S = 0.080
 DEADMAN_S = 0.300
 STALL_TIMEOUT_S = 1.0
+# Raw MPU6050 counts at the default +/-250 dps range: 131 counts/dps, so 400
+# counts ~= 3.05 deg/s on the largest gyro axis. UNVALIDATED against real IMU
+# data -- it was chosen while no IMU was fitted. Too low = drivetrain vibration
+# alone reads as "moving" and the guard never fires; too high = false stall cuts
+# while driving straight. Log gz/gx/gy during a floor run before trusting it.
 STALL_GYRO_THRESHOLD_COUNTS = 400
 MOTOR_LOOP_HZ = 50
 
-# Keep enabled for floor driving. If the MPU6050 is not wired yet, set this
-# False only for wheels-off-ground bring-up because it removes stall protection.
-STALL_GUARD_ENABLED = False
+# Re-enabled 3 Aug 2026: the MPU6050 is fitted and reading (see I2C_BUS below).
+# This was False for the whole IMU-absent period, which left DUTY_CAP as the
+# only thermal protection on a chip running two paralleled motors per channel.
+#
+# NOTE ON WHEELS-OFF TESTING: the guard proves motion from the GYRO, i.e. from
+# the CHASSIS rotating. On blocks the chassis doesn't move however fast the
+# wheels spin, so the only gyro signal is drivetrain vibration. If that
+# vibration is below STALL_GYRO_THRESHOLD_COUNTS the guard will stall-cut after
+# STALL_TIMEOUT_S even though nothing is wrong. That is expected on blocks, not
+# a fault -- but it means the threshold must be checked against real telemetry
+# on the floor before it can be trusted.
+STALL_GUARD_ENABLED = True
 
 # ------------------------------------------------------------ sensor pins ---
 # Moved 29 Jul 2026: the ultrasonics previously sat on 18/22/24/26, which the
