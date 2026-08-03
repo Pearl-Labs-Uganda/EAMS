@@ -733,6 +733,77 @@ assumed CAMERA_DEVICE = 0; confirm with `v4l2-ctl --list-devices`.
 - Possible follow-up: draw overlays on the frame (target bearing, IR state).
   camera.py already decodes to BGR, so the hook point exists.
 
+## 2026-08-03 — IMU working: the I²C bus was 7, not 1
+
+The MPU6050 is fitted and reading. `STALL_GUARD_ENABLED` is back to `True`, so
+the 55 % duty cap is no longer the only thermal protection. This closes the
+accepted risk carried since §7 and open item 5 of §9.8.
+
+The bug was one line: `config.I2C_BUS` was `1`. On the Orin Nano the 40-pin
+header's SDA/SCL (physical pins 3/5) is `/dev/i2c-7`. Bus 1 is the Raspberry Pi
+number — and it is also correct on the older Jetson Nano — so it carried into
+`config.py` during the Jetson migration and matched every tutorial we checked.
+It has been wrong since §8.1.
+
+Worth recording why this cost us the whole Jetson bring-up. The failure does not
+present as a config error. `smbus2` opens `/dev/i2c-1` successfully, because the
+bus exists; only the first register write to `0x68` fails. `sensors.py` caught
+that and logged `MPU6050 init failed`, which reads as an absent or dead sensor.
+Every layer above then behaved correctly for an absent IMU — zeros published,
+stall guard unable to prove motion, guard disabled so the car could drive — so
+nothing anywhere contradicted the "not installed" story. The diagnostic that
+would have found it in one step is `ls /dev/i2c-*` to see which buses exist,
+then `i2cdetect -y N` on each until `0x68` appears. Same lesson as the PWM
+15/32/33 correction on 30 July: trust the board, not the pinout.
+
+Changes: `config.py` gets the bus fix, `STALL_GUARD_ENABLED = True`, and
+`STALL_GYRO_THRESHOLD_COUNTS` documented in real units (~3 °/s at ±250 dps) and
+flagged as unvalidated. `sensors.py` now names the bus in both the success and
+failure log lines, and the failure is an error rather than a warning that also
+states the consequence and the command to run — the bus number was the one fact
+the old message omitted and the one we needed. `hardware.py` and `pwm_bench.py`
+drop the stale "only thermal protection while the IMU is missing" comments; both
+now note the stall guard could not backstop a stuck-enabled PWM pin regardless,
+since a runaway channel still produces motion for the IMU to see. Bus 7 replaces
+bus 1 in `README.md` and `rc-car-deployment.md`, whose IMU section is rewritten
+as fitted-and-working covering both failure modes (wrong bus, missing `i2c`
+group). `rc-car-requirements.md`'s IMU rows are re-labelled Pi-era rather than
+"not installed". `project-brief.md` §3, §6.2 and the §7 bring-up checklist are
+updated.
+
+Two things a working IMU does not yet give us. First, the threshold is
+unvalidated: 400 counts was picked with no IMU fitted and has never seen real
+data. Too low and drivetrain vibration alone reads as "moving" so the guard
+never fires; too high and it false-trips on a straight run. Second, and more
+structural: `_imu_moving()` reads the gyro, so it senses the *chassis* rotating,
+not the wheels. On blocks the chassis is still however fast the wheels spin, so
+a wheels-off test can stall-cut with nothing wrong — expected, not a fault,
+check RESET clears the latch. Conversely a car wedged with wheels slipping may
+vibrate enough to look "moving", which is the exact case the guard exists to
+catch. The current-sense detector prototyped in `eams_rover_sim` (high current +
+no motion → latch) is still the better primitive and is still worth building.
+Treat the restored guard as protection of unproven strength; the duty cap is
+still the one we actually rely on.
+
+**Unverified:** nothing beyond the IMU reading has been run. Before floor
+driving: `i2cdetect -y 7` shows `0x68` → server logs `MPU6050 online at 0x68 on
+i2c bus 7` → telemetry IMU values respond to physically tilting the car →
+wheels-off run, expecting a stall latch, confirming RESET clears it → floor run
+with the gyro logged.
+
+**Next:**
+- Log `gx/gy/gz` through stationary, straight, turning, and pushed-against-a-wall
+  and set `STALL_GYRO_THRESHOLD_COUNTS` from the gap between the stalled and
+  moving cases.
+- Update the project instructions in the Claude Project settings — they still
+  say the IMU is not installed and the duty cap is the only thermal protection.
+- `README.md`'s wiring table is stale on motor pins independently of this
+  (ENA 32 / ENB 33 / IN1 11 / IN2 13 / IN3 15 / IN4 16 vs `config.py`'s
+  ENA 33 / ENB 32 / IN1 24 / IN2 26 / IN3 22 / IN4 18, including the deliberate
+  IN3/IN4 swap). `config.py` wins, but the table is a wiring hazard.
+
+---
+
 ---
 
 ## Glossary
