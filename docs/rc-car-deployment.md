@@ -28,7 +28,7 @@ Log out and back in after changing groups.
 ```bash
 cd ~/rccar
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r rccar_requirements.txt
 ```
 
 ## Pin Numbering
