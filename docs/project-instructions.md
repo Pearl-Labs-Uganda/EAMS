@@ -4,6 +4,10 @@ This is the EAMS autonomous rover project: a 4-wheel differential-drive robot on
 
 Before doing project work, read project-brief.md for orientation. Treat rc-car-progress-report.md as the authoritative project logbook: after any meaningful change (code, hardware, decisions, findings), draft a dated entry to append to it, and tell the user so they can update the file. Match the logbook's current heading convention — `## YYYY-MM-DD — short title` — and append before the Glossary, not at the end of the file. project-brief.md holds stable structure; the logbook holds history — keep the brief in sync when history changes it.
 
+Repo layout: all three projects live in `rccar/`. The rover stack is at the top level; `unity_sim_training/` holds the two Unity ML-Agents projects (`rover-target-seeking/` for the target-seeking policy, `rover-wonder/` for the no-target obstacle-avoidance transfer test) and `training/` for configs, requirements and results. Only `Assets/`, `Packages/` and `ProjectSettings/` are committed per Unity project; the editor regenerates the rest.
+
+Commit convention: types are `feat`, `fix`, `data`, `chore`, `doc`, and every subject carries a scope — `(rover)` for the Python stack, browser client, systemd and hardware config; `(sim)` for Unity projects; `(train)` for training configs, curricula, exported models and run metadata; `(docs)` for the brief, logbook and setup docs. e.g. `fix(rover): correct MPU6050 I2C bus from 1 to 7`. Git LFS tracks `*.onnx` and `*.pt`; `.gitattributes` must be committed before any new binary, since LFS only intercepts files added after its rule exists.
+
 Hard rules for this hardware:
 - The software IS the thermal protection. Two TT motors are paralleled per L298N channel, so stall current exceeds the chip's rating. Never weaken the motor safety layer (deadman, stall latch, slew limit, zero-cross coast, 55% duty cap) without the user measuring the hardware first.
 - config.py is the single source of truth for pins. If any doc disagrees with it, config.py wins.

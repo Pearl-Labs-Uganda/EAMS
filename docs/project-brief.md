@@ -34,7 +34,7 @@ to organise the work, not a fixed contract — adjust as we learn.)
 | Phase | Capability | Status | Main artifacts |
 |---|---|---|---|
 | **1** | Manual browser control + live telemetry | Built; running, migrating to Jetson | `rccar/` stack |
-| **2** | Autonomous point-to-point navigation (drive to a target, avoid obstacles) | Policy trained in sim; sim-to-real transfer pending | Unity ML-Agents agent + configs |
+| **2** | Autonomous point-to-point navigation (drive to a target, avoid obstacles) | Policy trained in sim; sim-to-real transfer pending | `unity_sim_training/rover-target-seeking/`, `rover-wonder/` |
 | **3** | Natural-language instruction → pick target / plan → hand off to Phase 2 | Not started (ultimate goal) | TBD |
 | **Cross-cutting** | Simulation / digital twin so software can be built before hardware is wired; documentation | Two simulators built | `eams_simulator/`, `eams_rover_sim/`, this brief, the logbook |
 
@@ -83,7 +83,7 @@ One Python process, three roles:
 unchanged. Browser client is framework-free (joystick + Gamepad → arcade mixer →
 20 Hz JSON, *including zeros* — silence is what fires the deadman).
 
-**B. Unity ML-Agents RL agent (`DifferentialCarAgent.cs` + `car_config_obsatcles.yaml`) — Phase 2.**
+**B. Unity ML-Agents RL agent (`unity_sim_training/rover-target-seeking/`) — Phase 2.**
 A PPO sim-to-real policy for the same car. **18-dim observation:** target
 direction (3) + distance (1), local linear velocity (3), yaw rate (1),
 ultrasonic front/rear (2), IR ×6 (6), and its own rate-limited motor state (2).
@@ -92,6 +92,17 @@ differential-drive-native and sim-to-real safe. Features domain randomization,
 sensor-noise injection, a bootstrap-on-timeout path, and a **curriculum** that
 ramps `obstacle_count` (0 → full clutter) after warm-starting from an
 empty-arena policy.
+
+**B2. Wonder mode (`unity_sim_training/rover-wonder/`) — Phase 2 transfer test.**
+A fork of B with **no target at all**: the car drives forward and dodges. Its
+purpose is to answer whether the obstacle avoidance transfers to the physical
+car, so its **11-dim observation** contains only what the rover can actually
+measure — yaw rate (1), ultrasonic (2), IR ×6 (6), own motor state (2). Target
+direction/distance and linear velocity are dropped because the car has no map,
+GPS or odometry. Reward is *measured* forward speed (not commanded throttle,
+which would pay for wall-humping); timeout is the success outcome, logged as
+`Outcome/Survived`. Same action space as B, so the rover-side controller mapping
+is unchanged.
 
 **C. Broad digital-twin simulator (`eams_simulator/`) — cross-cutting, forward-looking.**
 A full AV sensor suite — GPS, IMU, encoder, motor, battery, current, LiDAR,
@@ -197,6 +208,50 @@ These are the things most likely to trip up a new contributor.
 3. **Service install** (`rccar.service`) once manual run is clean.
 4. **Phase 2 onward:** wire the trained policy's input pipeline (with the adapter
    from §6.4), then define the target/goal source; later, Phase 3 language layer.
+
+---
+
+## 7b. Repository layout & commit convention
+
+All three projects now live in one repo (consolidated 2026-08-05):
+
+```
+rccar/
+├── config.py, motors.py, sensors.py, server.py, ...   # rover stack
+├── policies/            # .onnx actually deployed on the car
+├── docs/                # brief, logbook, deployment, historical Pi-era docs
+├── static/              # browser client
+├── setup/               # hostapd / dnsmasq
+└── unity_sim_training/
+    ├── rover-target-seeking/   # Unity project (was Car-simulation-5)
+    ├── rover-wonder/           # Unity project, no-target transfer test
+    └── training/               # ML-Agents side
+        ├── car_config_*.yaml
+        ├── requirements.txt
+        └── results/            # .onnx + run metadata committed; .pt and
+                                # tfevents gitignored (regenerable)
+```
+
+Only `Assets/`, `Packages/` and `ProjectSettings/` are committed for each Unity
+project. Everything else the editor regenerates.
+
+**Commit convention.** Types are `feat`, `fix`, `data`, `chore`, `doc` (carried
+over from the sim repo's own history). Because rover code, Unity code and
+training artifacts now share a repo, subjects carry a **scope**:
+
+| Scope | Covers |
+|---|---|
+| `(rover)` | Python stack, browser client, systemd, hardware config |
+| `(sim)` | Unity projects — agent scripts, scenes, prefabs, project settings |
+| `(train)` | Training configs, curricula, exported models, run metadata |
+| `(docs)` | Brief, logbook, deployment and setup docs |
+
+e.g. `feat(sim): add wonder-mode agent with 11 observations`,
+`fix(rover): correct MPU6050 I2C bus from 1 to 7`.
+
+**Git LFS** tracks `*.onnx` and `*.pt` via `.gitattributes`. LFS only intercepts
+files added *after* its rule exists, so `.gitattributes` must be committed
+before any new binary.
 
 ---
 

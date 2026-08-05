@@ -804,6 +804,178 @@ with the gyro logged.
 
 ---
 
+## 2026-08-05 — Backfill: the Unity sim repo's history (6–10 July 2026)
+
+Recorded now, during the repo consolidation below, because this logbook has had
+no record of the Unity side at all. The simulator and the policy were built in a
+separate repo (`Car-simulation-5`) that ran in parallel with everything in §7–§9
+here, so the trained policy kept appearing in these pages as a finished object
+with no account of how it got that way. Summarised from that repo's 23 commits,
+6–10 July 2026, which is now the only surviving record — the repo is being
+archived rather than merged, so its commit history does not come across.
+
+**6 July.** Initial commit, then randomised the car's starting direction. Both on
+the first day, which sets the tone: the agent was never allowed to memorise a
+fixed start.
+
+**7 July.** Furniture assets (chairs, tables) and furniture randomisation with
+clearance checking. The reward for turning toward the target was reworked. The
+ultrasonic and IR sensors were widened from a single raycast line to an angular
+fan — the 15-ray and 6-ray bundles still in the agent today. A single line was
+too easy to sneak an obstacle past.
+
+**8 July.** Sensor count raised from 4 IR to 6, and from 1 ultrasonic to 2,
+explicitly for better obstacle avoidance. This is the origin of the suite the
+real car now carries and of the `[FL, FR, RL, RR, L, R]` IR ordering that
+`eams_rover_sim` was later built to match. First trained models committed.
+
+**9 July.** Turning was made the *default* motion with straight-line movement
+secondary — previously the opposite. This is the throttle/steer action space:
+an in-place turn became a single push on one axis instead of a rare
+anti-correlated pair of independent Gaussians, so exploration finds turning
+almost immediately. First training configuration committed, then a network
+trained on the empty arena with the full 9-sensor suite (6 IR + 2 ultrasonic +
+1 IMU) and the new turning mechanism.
+
+**10 July.** Obstacle avoidance plus random obstacle placement, and the
+obstacles network trained to roughly 2,600,000 steps. That lineage continues to
+the `obstacles_v3` run whose export is deployed on the car today as
+`policies/DifferentialCarAgent-obstacles_v3.onnx`.
+
+Worth noting what this history shows: the sensor suite, the fan-shaped sensor
+models, and the throttle/steer action space were all discovered in the simulator
+during a single week in July, and each one is now a constraint on the real car.
+The IR ordering in particular is a contract between three separate codebases.
+
+---
+
+## 2026-08-05 — Repo consolidation: three projects become one
+
+Everything now lives in `rccar/`. Previously the work was split across three
+places — `rccar` (rover stack), `car-simulation-5` (Unity training), and
+`car-simulation-5.1` (an untouched duplicate) — with a `unity files/` folder in
+`rccar` holding stale copies of the agent script and training configs. That
+folder was a manual copy with no mechanism keeping it current, which is exactly
+the drift the "config.py is the single source of truth" rule exists to prevent,
+reproduced one level up.
+
+**New layout.** `unity files/` is deleted and replaced by
+`unity_sim_training/`, containing the two Unity projects and a `training/`
+folder for the ML-Agents side (configs, requirements, results, terminal traces).
+The Unity project is renamed from `Car-simulation-5` to **`rover-target-seeking`**,
+and its wonder-mode duplicate to **`rover-wonder`** — named for what they train
+rather than by version number, since git now holds the versioning. Neither name
+collides with the existing Python simulators `eams_simulator/` and
+`eams_rover_sim/`, which are unrelated to the Unity work.
+
+Only `Assets/`, `Packages/` and `ProjectSettings/` were carried across. Unity
+regenerates `Library/`, `Logs/`, `Temp/`, `obj/`, the `.csproj`/`.slnx` files and
+`UserSettings/` on first open, and committing them causes constant spurious
+diffs — `Library/` in particular holds machine-specific import caches that can
+break a clone. Deleting the solution files is also what makes the rename clean:
+the editor recreates them under the new product name.
+
+**History was not merged.** `car-simulation-5` is archived intact rather than
+imported via subtree, so its 23 commits do not come across. That is a deliberate
+trade of history for a clean start, and it is why the backfill entry above
+exists — the July narrative now lives here instead.
+
+**Large artifacts stay behind too.** The `obstacles_v3` run's twelve `.pt`
+checkpoints and its TensorBoard event files remain in the archived repo. Only
+the deployed export, `policies/DifferentialCarAgent-obstacles_v3.onnx`, comes
+across, since it is the artifact the car actually loads. **If those checkpoints
+are ever needed — to resume training rather than start fresh, or to compare an
+intermediate policy — they are in the archived `car-simulation-5` repo and
+nowhere else.** Future training output lands in
+`unity_sim_training/training/results/` under the new `.gitignore` rules: `.onnx`
+exports and run metadata are committed, `.pt` and event files are not.
+
+**Git LFS is now in use** for `*.onnx` and `*.pt`, configured in `.gitattributes`
+and committed before any binary was added. Note that the already-committed
+`policies/DifferentialCarAgent-obstacles_v3.onnx` predates this and remains an
+ordinary blob; converting it would require rewriting history and is not worth it
+for a file that size.
+
+**Commit scopes.** With rover code, Unity code and training artifacts in one
+repo, commit subjects now carry a scope: `(rover)`, `(sim)`, `(train)`,
+`(docs)`. The existing type vocabulary — `feat`, `fix`, `data`, `chore`, `doc` —
+is unchanged, since it is what the sim repo's history already used. Recorded in
+`project-brief.md` and `project-instructions.md`.
+
+---
+
+## 2026-08-05 — Wonder mode: an 11-observation obstacle-avoidance agent
+
+`rover-wonder` exists to answer one question: **does the obstacle avoidance
+learned in Unity actually work on the physical car?** It is a transfer test, not
+a feature. The car drives forward and dodges, with no destination.
+
+The design constraint is that every observation must be something the rover can
+actually measure. That cuts the vector from 18 to **11**: yaw rate (1),
+ultrasonic front/rear (2), IR ×6 (6), and the controller's own rate-limited
+motor state (2). Dropped are target direction (3) and distance (1), which need a
+map or GPS the car does not have, and local linear velocity (3), which needs
+odometry it also does not have. What remains is exactly the car's real senses,
+so there is no sim-to-real observation gap left to discover on the floor.
+
+Yaw rate only became an honest observation last week. Until the I²C bus 7 fix
+(2026-08-03) the physical `gz` read zeros, so any policy leaning on it would
+have transferred as a car that cannot tell it is turning. Wonder mode adds
+Gaussian gyro noise and a per-episode zero-rate bias to match a real MPU6050,
+which is worth doing now that yaw rate is one of eleven inputs rather than one
+of eighteen.
+
+**Reward changes, and why each one.** The distance-to-target reward is replaced
+by a reward on *measured* forward velocity. Measured rather than commanded is
+deliberate: paying for commanded throttle would pay a car pinned against a wall
+at full throttle exactly as much as one driving across the room, and the wall is
+easier — that failure mode is called wall-humping and it is a reward bug, not a
+policy bug. Using `rb.linearVelocity` is privileged simulator state, which is
+fine, because rewards never run on the rover; only observations have to be
+honest.
+
+The existential penalty is removed entirely. In the target-seeking agent it
+pushed for speed and arriving stopped the bleeding; with no success state the
+only way to stop it would be to crash, making it a standing incentive to end the
+episode. An `idlePenalty` exists for the opposite failure — sitting still scores
+0, which beats risking a −1 collision — but it **defaults to 0 and should stay
+there unless cowering is actually observed**, because if
+`idlePenalty × maxEpisodeSteps` exceeds the 1.0 collision penalty, crashing
+early becomes cheaper than idling and the agent will drive into a wall on
+purpose. At 1500 steps that ceiling is about 0.0004.
+
+Episodes now end two ways: collision (true terminal, −1) or timeout
+(`EpisodeInterrupted`, bootstrapped, no terminal reward). **Timeout is the good
+outcome** — it means the car survived the episode. The TensorBoard metric to
+watch is `Outcome/Survived` climbing toward 1.0; `Outcome/Success` is gone.
+Spawn order is also reversed: furniture is placed first and the *car* is then
+dropped in a clear spot, since with no target to randomise, randomising the
+car's start is what stops it memorising one corner of the room.
+
+**Unverified:** nothing has been compiled or trained. The agent script has never
+been through the Unity compiler. Three inspector fields must be set by hand on
+first open — Vector Observation Space Size to 11, Behavior Name to `WonderCar`,
+and the Agent's Max Step to 0 so `maxEpisodeSteps` stays the single source of
+truth. The curriculum thresholds in `car_config_wonder.yaml` are placeholders:
+the reward scale is now accumulated forward speed (roughly 3.75 for a clean run)
+rather than the 0.4–0.6 of the distance-based reward, so copying the old
+thresholds would advance every lesson instantly. Do not `--initialize-from` a
+target-seeking checkpoint — 18 inputs versus 11, and a warm start that silently
+fails looks exactly like slow learning.
+
+**Next:**
+- Open `rover-wonder` in Unity, fix whatever the compiler objects to, set the
+  three inspector fields, and run the Clear lesson to find the real reward
+  plateau before setting curriculum thresholds.
+- Write the 11-observation builder in `policy.py`, in the index order documented
+  in the agent's header comment. Assert the ONNX input width matches and refuse
+  to start on mismatch — never pad or truncate. An index mismatch does not
+  throw; it just drives badly.
+- Then dummy motor mode → wheels-off (expect a stall latch, confirm RESET
+  clears it) → taped box on the floor, short runs, hand on release. Wonder mode
+  is unusually good at producing a car nosed into a wall with wheels slipping,
+  which is the exact case the stall guard may miss.
+
 ---
 
 ## Glossary
