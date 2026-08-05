@@ -978,6 +978,59 @@ fails looks exactly like slow learning.
 
 ---
 
+## 2026-08-05 — Follow-up: doc renames, split requirements, gitignore fix
+
+Second pass over the consolidation above, after the files were actually
+moved. The entry before this one names `project-brief.md` and
+`project-instructions.md`; both were renamed in this pass and no longer
+exist under those names.
+
+**Docs prefixed.** `project-brief.md` → `rc-car-project-brief.md`, and
+`project-instructions.md` → `rc-car-project-instructions-for-AI.md`. The
+second name states its audience: it is the file that lets this project be
+rebuilt in a fresh Claude session, not a doc for humans to follow. Every
+live cross-reference was fixed — the instructions' own opening line,
+`rc-car-requirements.md`, `usb-gadget-setup.md`, and the orientation
+banner atop this file. Historical mentions inside dated entries were left
+alone, since they record what the files were called at the time.
+
+**Requirements split.** `requirements.txt` →
+`rccar_requirements.txt` (onnxruntime, Jetson.GPIO, smbus2, Flask) and
+`unity_sim_training/training/training_requirements.txt` (mlagents and its
+torch stack). The two are installed on different machines — rover deps on
+the Jetson, training deps on the Fedora box — so one file meant either
+installing torch on the Jetson or hand-picking lines.
+
+**Training config renamed.** `car_config_obsatcles.yaml` →
+`car_config_target_seeking.yaml`, fixing the typo and naming it for what
+it trains now that `car_config_wonder.yaml` exists alongside.
+`car_config_no_obstacles.yaml` was deliberately not carried over: it
+produced the empty-arena checkpoint the obstacles run warm-started from,
+but the current config trains that stage inline as the Clear lesson
+(`measure: progress`, 5 % threshold), so it has no role in a fresh run. It
+stays in the archived `car-simulation-5` repo. The in-Assets duplicate at
+`Assets/Trining Config/` was deleted — same uncontrolled second copy the
+old `unity files/` folder was.
+
+**Gitignore bug caught before it bit.** The first draft used unanchored
+Unity rules (`[Tt]emp/`, `[Bb]uild/`, `[Ll]ogs/`, `[Oo]bj/`). An unanchored
+directory pattern matches at *any* depth, so `Assets/Temp/` — a real asset
+folder in this project — would have been excluded along with the editor's
+throwaway `Temp/`. That failure is invisible at commit time and surfaces
+later as missing references when a scene opens. All Unity rules are now
+anchored to `unity_sim_training/*/`, and there is deliberately no
+`Temp.meta` rule.
+
+**Note for future warm starts.** The old obstacles config carried a
+comment warning that `--initialize-from` only works when the source run
+used the same observation size. The rewrite dropped it, and the footgun is
+now larger, not smaller: with an 11-observation project in the same repo,
+wonder and target-seeking checkpoints are not interchangeable, and a
+failed warm start looks exactly like slow learning.
+Only `car_config_wonder.yaml` says so.
+
+---
+
 ## Glossary
 
 - **BCM numbering** — Naming GPIO pins by the Broadcom chip's numbers (GPIO 12) instead of physical header positions.

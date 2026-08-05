@@ -227,7 +227,7 @@ rccar/
     ├── rover-wonder/           # Unity project, no-target transfer test
     └── training/               # ML-Agents side
         ├── car_config_*.yaml
-        ├── traning_requirements.txt
+        ├── trianing_requirements.txt
         └── results/            # .onnx + run metadata committed; .pt and
                                 # tfevents gitignored (regenerable)
 ```
