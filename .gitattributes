@@ -1,0 +1,28 @@
+# ============================================================
+# Git LFS tracking
+#
+# IMPORTANT: this file must be committed BEFORE the binaries it
+# describes. LFS only intercepts files added after the rule exists;
+# anything already committed as a normal blob stays a normal blob
+# until you rewrite history with `git lfs migrate`.
+# ============================================================
+
+# Exported policies. Small individually (a 2x128 MLP is a few hundred KB),
+# but they accumulate one per training run and are never diffed, so LFS keeps
+# them out of the packfile.
+*.onnx filter=lfs diff=lfs merge=lfs -text
+
+# PyTorch checkpoints. These carry optimizer state and are the genuinely large
+# artifact -- several MB each. Mostly gitignored, but tracked here so that any
+# checkpoint you deliberately force-add goes to LFS rather than the packfile.
+*.pt filter=lfs diff=lfs merge=lfs -text
+
+# ---------- Line endings ----------
+# Unity YAML (scenes, prefabs, .asset) is text and must keep LF, or the editor
+# produces enormous whitespace-only diffs on Windows checkouts.
+*.unity   text eol=lf
+*.prefab  text eol=lf
+*.asset   text eol=lf
+*.meta    text eol=lf
+*.mat     text eol=lf
+*.cs      text diff=csharp
