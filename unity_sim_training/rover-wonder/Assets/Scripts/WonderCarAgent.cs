@@ -3,39 +3,71 @@ using System.Collections.Generic;
 using Unity.MLAgents;
 using Unity.MLAgents.Sensors;
 using Unity.MLAgents.Actuators;
-using UnityEngine.InputSystem; // Required for Modern Input System
+using UnityEngine.InputSystem;
 
 /// <summary>
-/// A Sim-to-Real RL Agent controlling a differential-drive robot (rover/car).
-/// Features physical latency modeling, domain randomization, sensor noise injection, 
-/// and normalized observations critical for identical execution on physical deployment hardware (e.g., Nvidia Jetson).
+/// WONDER MODE agent: drives forward and avoids obstacles, with NO target.
+///
+/// Forked from DifferentialCarAgent. The point of this fork is a sim-to-real
+/// transfer test, so the observation vector contains ONLY quantities the
+/// physical rover can actually measure. Everything the real car cannot sense is
+/// gone from the observations -- though rewards still use privileged simulator
+/// state freely, because rewards do not exist at deployment.
+///
+/// OBSERVATION VECTOR = 11. Set "Vector Observation Space Size" to 11 in the
+/// Behavior Parameters component or the model will silently mismatch.
+///
+///   idx  quantity                     real source on the car
+///   ---  ---------------------------  -------------------------------------
+///   0    yaw rate, normalised          MPU6050 gz  (i2c bus 7)
+///   1    ultrasonic front, 0-1         HC-SR04 front
+///   2    ultrasonic rear, 0-1          HC-SR04 rear
+///   3    IR front-left, 0/1            LM393
+///   4    IR front-right, 0/1           LM393
+///   5    IR rear-left, 0/1             LM393
+///   6    IR rear-right, 0/1            LM393
+///   7    IR left, 0/1                  LM393
+///   8    IR right, 0/1                 LM393
+///   9    smoothedLeft, -1..1           controller-side slew state
+///   10   smoothedRight, -1..1          controller-side slew state
+///
+/// THIS ORDER IS A CONTRACT with policy.py on the rover. If you reorder it here,
+/// reorder it there in the same commit. An index mismatch does not throw -- it
+/// just drives badly, which is the hardest possible failure to diagnose.
+///
+/// Dropped versus the target-seeking agent, and why:
+///   - target direction (3) + distance (1): the rover has no map, GPS, or
+///     localisation, so it can never produce these.
+///   - linear velocity (3): no odometry (see progress report open items). The
+///     agent must now infer its speed from smoothedLeft/Right, which are
+///     COMMANDS not measurements. That is a real blind spot, and it is the
+///     car's actual blind spot, so it is better trained into than papered over.
+///
+/// Added versus the target-seeking agent:
+///   - yaw rate is now an honest observation. It was in the old vector too, but
+///     the physical IMU was reading zeros until the I2C bus fix, so a policy
+///     leaning on it would not have transferred. It transfers now.
 /// </summary>
 [RequireComponent(typeof(Rigidbody))]
-public class DifferentialCarAgent : Agent
+public class WonderCarAgent : Agent
 {
     [Header("Procedural Furniture Placement")]
     [Tooltip("List of all furniture GameObjects to randomize in the scene.")]
-    public List<Transform> furnitureList; 
-    
-    [Tooltip("Clearance zone radius around the target cube.")]
-    public float targetBuffer = 2.0f;     
-    
+    public List<Transform> furnitureList;
+
     [Tooltip("Clearance zone radius around the car's spawn point.")]
     public float carBuffer = 2.0f;
 
     [Header("Environment")]
-    [Tooltip("The objective transform the car is trying to reach.")]
-    public Transform targetLocation;
-    
-    [Tooltip("BoxCollider on the floor defining where the target can randomly spawn.")]
+    [Tooltip("BoxCollider on the floor defining where the car and furniture can spawn.")]
     public Collider spawnArea;
-    
-    [Tooltip("Distance (m) at which the car is considered to have arrived. Keep this larger than the real car's footprint - a physical rover shouldn't need to ram the target.")]
-    public float successRadius = 0.25f;
+
+    [Tooltip("Randomize the CAR's start position each episode. In wonder mode there is no target to randomize, so this is what stops the agent memorising one corner of the room.")]
+    public bool randomizeCarSpawn = true;
 
     [Header("Episode Limits")]
-    [Tooltip("Max decision steps before the episode times out and BOOTSTRAPS (EpisodeInterrupted, not EndEpisode) so a stuck/wedged car in clutter can't run forever and poison the buffer. Set to 0 to disable and rely on the Agent's inspector Max Step instead. If you use this, LEAVE the inspector Max Step at 0 so there's a single source of truth.")]
-    public int maxEpisodeSteps = 2000;
+    [Tooltip("Max decision steps before the episode times out and BOOTSTRAPS (EpisodeInterrupted, not EndEpisode). In wonder mode a timeout is the GOOD outcome - it means the car survived the whole episode without hitting anything. Leave the inspector Max Step at 0 so this is the single source of truth.")]
+    public int maxEpisodeSteps = 1500;
 
     [Header("Wheel Anchors")]
     [Tooltip("Empty GameObject positioned at the point where the Left Wheel contacts the ground. Must have a localized X-axis offset!")]
@@ -46,7 +78,7 @@ public class DifferentialCarAgent : Agent
     [Header("Movement Settings")]
     [Tooltip("Forward/backward linear drive power applied directly at each wheel position.")]
     public float motorForce = 20f;
-    
+
     [Tooltip("Higher = motors respond to commands faster. Lower this to mimic real motor/ESC ramp-up lag.")]
     public float motorResponseRate = 6f;
 
@@ -66,170 +98,131 @@ public class DifferentialCarAgent : Agent
     [Tooltip("Typical IR obstacle sensor detection range.")]
     public float irRange = 2.0f;
 
-    public float maxTargetDistance = 20f;
-    
-    [Tooltip("Maximum expected forward/backward velocity used to scale linear speed observations.")]
+    [Tooltip("Maximum expected forward/backward velocity. No longer observed, but still used to scale the forward-speed REWARD so the reward stays roughly 0-1 per step.")]
     public float maxLinearSpeed = 3f;
-    
-    [Tooltip("Maximum expected yaw rate used to scale angular speed observations.")]
+
+    [Tooltip("Maximum expected yaw rate used to scale the angular speed observation.")]
     public float maxAngularSpeed = 6f;
 
     [Header("Sim-to-Real: Sensor Noise")]
     [Tooltip("Toggle to enable/disable reality-gap sensor noise injection during training.")]
     public bool simulateSensorNoise = true;
-    
+
     [Tooltip("Std dev of Gaussian noise added to the normalised ultrasonic reading.")]
     [Range(0f, 0.15f)] public float ultrasonicNoiseStdDev = 0.03f;
-    
+
     [Tooltip("Chance an IR reading randomly flips each physics step, mimicking real false pos/neg.")]
     [Range(0f, 0.3f)] public float irNoiseFlipChance = 0.04f;
+
+    [Tooltip("Std dev of Gaussian noise on the normalised yaw rate. The sim gyro is exact; a real MPU6050 is not. NEW for wonder mode, because yaw rate is now a load-bearing observation rather than one of eighteen.")]
+    [Range(0f, 0.15f)] public float gyroNoiseStdDev = 0.02f;
+
+    [Tooltip("Fixed per-episode yaw-rate bias, sampled from +/- this value. Mimics MPU6050 zero-rate offset, which is constant within a run but differs between power cycles. Set 0 to disable.")]
+    [Range(0f, 0.15f)] public float gyroBiasRange = 0.03f;
 
     [Header("Sim-to-Real: Physics Randomization")]
     [Tooltip("Toggle Domain Randomization across training episodes to build policy robust to mass/friction variances.")]
     public bool randomizePhysicsPerEpisode = true;
-    
+
     [Tooltip("Min/Max scaling factors applied to the agent's Rigidbody mass.")]
     public Vector2 massMultiplierRange = new Vector2(0.85f, 1.15f);
-    
+
     [Tooltip("Min/Max scaling factors applied to motor force.")]
     public Vector2 motorForceMultiplierRange = new Vector2(0.85f, 1.15f);
 
     [Header("Reward Shaping")]
-    [Tooltip("Multiplier for rewards granted by progressing closer to the target.")]
-    public float speedRewardMultiplier = 1.0f;
-    
+    [Tooltip("Per-step reward for MEASURED forward velocity (not commanded). Replaces the target-distance reward. Measured, so a car pinned against a wall at full throttle earns nothing - which is exactly the failure mode a commanded-throttle reward would pay for. BUDGET: this accrues every step, so total ~= multiplier * avgNormalisedSpeed * maxEpisodeSteps. At 0.005 * 0.5 * 1500 that is ~3.75 for a clean run, against -1.0 for a collision. Keep that ratio in mind if you change either.")]
+    public float forwardSpeedReward = 0.005f;
+
     [Tooltip("Multiplier for penalizing the car as it gets closer to obstacles via sonar.")]
     public float obstacleProximityPenalty = 0.01f;
-    
+
     [Tooltip("Flat penalty applied per active short-range IR sensor trigger.")]
     public float irPenalty = 0.02f;
-    
+
     [Tooltip("Penalty multiplier for rapid, high-frequency oscillations in motor commands.")]
     public float actionJitterPenalty = 0.001f;
-    
-    [Tooltip("Small penalty applied every physics step to encourage the agent to find the fastest path.")]
-    public float existentialPenalty = 0.001f;
 
-    [Tooltip("Multiplier for rewards granted by turning to reduce heading error toward the target.")]
-    public float headingRewardMultiplier = 1.0f;
+    [Tooltip("Penalty applied per step while the mixed drive is negative (reversing). Backing out of a furniture pocket is legitimate here, so this starts lower than the target-seeking agent's 0.005.")]
+    public float reversingPenalty = 0.002f;
 
-    [Tooltip("Penalty applied per step while the mixed drive is negative (reversing). Exposed so you can shrink or zero it for the obstacle phase, where backing out of a furniture pocket is a legitimate maneuver. Was a hard-coded 0.005.")]
-    public float reversingPenalty = 0.005f;
+    [Tooltip("DEFAULTS TO 0 ON PURPOSE. Per-step penalty while the car is barely moving, to break 'cowering' (sitting still scores 0, which beats risking a -1 collision). Only raise this if you actually observe cowering in TensorBoard. DANGER: idlePenalty * maxEpisodeSteps must stay well below the 1.0 collision penalty, or the agent learns that crashing early is cheaper than idling - it will drive into a wall on purpose. At 1500 steps, keep this under ~0.0004.")]
+    public float idlePenalty = 0f;
+
+    [Tooltip("Normalised forward speed below which the car counts as idle for idlePenalty.")]
+    public float idleSpeedThreshold = 0.05f;
 
     // Component and Baseline State Caching
     private Rigidbody rb;
     private Vector3 startingPosition;
-    private Quaternion startingRotation;
     private float baseMotorForce;
     private float baseMass;
 
-    // Curriculum: lets the training YAML drive how hard the starting heading is,
-    // and (new) how many furniture obstacles are active this episode.
+    // Curriculum: lets the training YAML drive how many obstacles are active.
     private Unity.MLAgents.EnvironmentParameters envParams;
 
     // Cached so per-episode outcome logging doesn't re-fetch it every time.
     private StatsRecorder statsRecorder;
 
-    // Tracking state variables for rewards and motor smoothing
-    private float previousDistanceToTarget;
+    // Tracking state for rewards and motor smoothing
     private float prevLeftAction, prevRightAction;
     private float smoothedLeft, smoothedRight;
-    private float previousAngleError;
+
+    // Per-episode gyro zero-rate offset (sim-to-real).
+    private float gyroBias;
 
     // Time-limit bookkeeping for the bootstrap-on-timeout path.
     private int episodeStepCount;
 
     // Cached once per physics step so CollectObservations and OnActionReceived
     // never raycast the same sensor twice in the same step.
-    // Cached readings
     private float ultrasonicFrontReading, ultrasonicRearReading;
     private float irFLReading, irFRReading, irRLReading, irRRReading, irLReading, irRReading;
 
-    /// <summary>
-    /// Called once when the agent is instantiated. Caches structural transforms and initial rigid body settings.
-    /// </summary>
     public override void Initialize()
     {
         rb = GetComponent<Rigidbody>();
         startingPosition = transform.position;
-        startingRotation = transform.rotation;
         baseMotorForce = motorForce;
         baseMass = rb.mass;
 
-        // Grab the Academy's environment parameters once so OnEpisodeBegin can
-        // read the current curriculum lesson (heading range + obstacle count).
         envParams = Academy.Instance.EnvironmentParameters;
-
-        // Cache the stats recorder so we can log WHY each episode ended.
         statsRecorder = Academy.Instance.StatsRecorder;
     }
 
-    /// <summary>
-    /// Sets up environmental and physical conditions at the beginning of each training run.
-    /// </summary>
     public override void OnEpisodeBegin()
     {
-        // Reset physical dynamics
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
-        transform.position = startingPosition;
 
-        // Reset motor control state to prevent action carry-over between episodes
         smoothedLeft = smoothedRight = 0f;
         prevLeftAction = prevRightAction = 0f;
-
-        // Reset the time-limit counter for the timeout/bootstrap path.
         episodeStepCount = 0;
 
-        // Execute Domain Randomization if enabled
+        // One gyro offset per episode, held constant, like a real power cycle.
+        gyroBias = (gyroBiasRange > 0f) ? Random.Range(-gyroBiasRange, gyroBiasRange) : 0f;
+
         if (randomizePhysicsPerEpisode)
             RandomizePhysics();
 
-        // How many furniture obstacles should be live this episode?
-        // Curriculum-driven: start at 0 (confirms the warm-started empty policy
-        // didn't regress), then ramp toward furnitureList.Count. Defaulting to the
-        // full list reproduces the "all furniture always on" behavior when no
-        // obstacle_count lesson is configured in the YAML.
         int obstacleCount = (furnitureList != null) ? furnitureList.Count : 0;
         if (envParams != null)
             obstacleCount = Mathf.RoundToInt(envParams.GetWithDefault("obstacle_count", obstacleCount));
 
-        // Environment reset sequence (handles furniture and clearance buffers).
-        // NOTE: this now runs BEFORE we set the heading, so the target already has
-        // its position and we can orient the car relative to it (curriculum below).
+        // Furniture goes down first, then the car is placed in a clear spot.
+        // Reversed relative to the target-seeking agent, where the target was
+        // placed first and everything else cleared around it.
         RandomizeEnvironment(obstacleCount);
+        PlaceCar();
 
-        // Curriculum-driven starting heading.
-        // "heading_range_deg" controls how far the spawn heading may deviate from
-        // facing the target: start small (target basically ahead -> easy) and widen
-        // toward 360 as the agent improves. Defaulting to 360 reproduces the old
-        // fully-random spawn when no curriculum lesson is configured in the YAML.
-        float headingRange = 360f;
-        if (envParams != null)
-            headingRange = envParams.GetWithDefault("heading_range_deg", 360f);
-        headingRange = Mathf.Clamp(headingRange, 0f, 360f);
-
-        Vector3 toTarget = targetLocation.position - transform.position;
-        toTarget.y = 0f;
-        float baseHeading = (toTarget.sqrMagnitude > 1e-6f)
-            ? Quaternion.LookRotation(toTarget.normalized, Vector3.up).eulerAngles.y
-            : Random.Range(0f, 360f);
-        float headingNoise = Random.Range(-headingRange * 0.5f, headingRange * 0.5f);
-        transform.rotation = Quaternion.Euler(0f, baseHeading + headingNoise, 0f);
+        // Heading is always fully random. The target-seeking agent ramped
+        // heading_range_deg as a curriculum because heading was defined relative
+        // to the target; with no target there is no easy or hard heading.
+        transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
 
         UpdateSensorReadings();
-
-        previousDistanceToTarget = Vector3.Distance(transform.position, targetLocation.position);
-
-        // Baseline heading error, tracked the same way distance is, so the
-        // reward can be based on improvement rather than a flat snapshot.
-        previousAngleError = Vector3.Angle(transform.forward,
-            (targetLocation.position - transform.position).normalized) * Mathf.Deg2Rad;
     }
 
-    /// <summary>
-    /// Randomizes physical properties within specified bounds to bridge the Sim-to-Real gap.
-    /// </summary>
     private void RandomizePhysics()
     {
         rb.mass = baseMass * Random.Range(massMultiplierRange.x, massMultiplierRange.y);
@@ -237,30 +230,57 @@ public class DifferentialCarAgent : Agent
     }
 
     /// <summary>
-    /// Randomly positions the target within the boundaries of the designated spawn area.
+    /// Drops the car somewhere in the spawn area with clearance from every live
+    /// obstacle. Falls back to the original inspector position if it cannot find
+    /// a clear spot, rather than spawning inside a sofa.
     /// </summary>
-    private void MoveTargetToRandomPosition()
+    private void PlaceCar()
     {
-        if (spawnArea == null)
+        if (!randomizeCarSpawn || spawnArea == null)
         {
-            Debug.LogWarning("Spawn Area not assigned - target will not randomise.");
+            transform.position = startingPosition;
             return;
         }
-        Bounds bounds = spawnArea.bounds;
-        float randomX = Random.Range(bounds.min.x, bounds.max.x);
-        float randomZ = Random.Range(bounds.min.z, bounds.max.z);
-        targetLocation.position = new Vector3(randomX, targetLocation.position.y, randomZ);
+
+        float carRadius = GetObjectRadius(transform);
+
+        for (int attempt = 0; attempt < 100; attempt++)
+        {
+            Vector3 candidate = GetRandomPointInSpawnArea();
+            bool clear = true;
+
+            if (furnitureList != null)
+            {
+                foreach (var item in furnitureList)
+                {
+                    if (item == null || !item.gameObject.activeSelf) continue;
+                    float combined = carRadius + GetObjectRadius(item) + carBuffer;
+                    if (Vector3.Distance(candidate, item.position) < combined)
+                    {
+                        clear = false;
+                        break;
+                    }
+                }
+            }
+
+            if (clear)
+            {
+                transform.position = candidate;
+                return;
+            }
+        }
+
+        Debug.LogWarning("WonderCarAgent: no clear car spawn found in 100 tries; " +
+                         "falling back to the initial position. Reduce obstacle_count " +
+                         "or enlarge the spawn area.");
+        transform.position = startingPosition;
     }
 
-    // Runs once per physics step - single source of truth for all five sensors.
     private void FixedUpdate()
     {
         UpdateSensorReadings();
     }
 
-    /// <summary>
-    /// Centralized update loop for hardware sensor emulation raycasts.
-    /// </summary>
     private void UpdateSensorReadings()
     {
         ultrasonicFrontReading = ReadUltrasonic(ultrasonicFrontOrigin);
@@ -275,8 +295,8 @@ public class DifferentialCarAgent : Agent
     }
 
     /// <summary>
-    /// Emulates an HC-SR04 ultrasonic sensor using a 15-ray fan cluster to mimic a physical cone wave.
-    /// Returns a normalized value from 0 (obstacle touching sensor) to 1 (clear path).
+    /// Emulates an HC-SR04 using a 15-ray fan to mimic the physical cone.
+    /// Returns 0 (obstacle touching) to 1 (clear).
     /// </summary>
     private float ReadUltrasonic(Transform origin)
     {
@@ -284,7 +304,7 @@ public class DifferentialCarAgent : Agent
 
         float minDistance = ultrasonicRange;
         int numRays = 15;
-        float totalAngle = 30f; // -15 to +15 degrees
+        float totalAngle = 30f;
 
         for (int i = 0; i < numRays; i++)
         {
@@ -310,8 +330,7 @@ public class DifferentialCarAgent : Agent
     }
 
     /// <summary>
-    /// Emulates a digital IR proximity sensor using a narrow 6-ray line bundle.
-    /// Returns 1f if an obstacle is tripped by any ray within range, otherwise 0f.
+    /// Emulates a digital IR proximity sensor with a narrow 6-ray bundle.
     /// </summary>
     private float ReadIR(Transform origin)
     {
@@ -319,7 +338,7 @@ public class DifferentialCarAgent : Agent
 
         float reading = 0f;
         int numRays = 6;
-        float totalAngle = 6f; // -3 to +3 degrees
+        float totalAngle = 6f;
 
         for (int i = 0; i < numRays; i++)
         {
@@ -331,7 +350,7 @@ public class DifferentialCarAgent : Agent
             {
                 if (hit.collider.CompareTag("obstacle") || hit.collider.CompareTag("Wall"))
                 {
-                    reading = 1f; 
+                    reading = 1f;
                 }
             }
         }
@@ -342,7 +361,6 @@ public class DifferentialCarAgent : Agent
         return reading;
     }
 
-    // Box-Muller transform - Unity's Random has no built-in Gaussian sampler.
     private float SampleGaussian(float mean, float stdDev)
     {
         float u1 = 1f - Random.value;
@@ -352,31 +370,22 @@ public class DifferentialCarAgent : Agent
     }
 
     /// <summary>
-    /// Packages all internal and environmental state data to pass directly into the Neural Network.
-    /// Vector Observation Space Size in Behaviour Parameters must be set to 18.
+    /// 11 observations, every one of which the physical rover can measure.
+    /// Behavior Parameters -> Vector Observation Space Size MUST be 11.
     /// </summary>
     public override void CollectObservations(VectorSensor sensor)
     {
-        // 1. Target direction, local space (3 obs)
-        Vector3 localTargetPos = transform.InverseTransformPoint(targetLocation.position);
-        sensor.AddObservation(localTargetPos.normalized);
+        // 0. Yaw rate, normalised (1 obs) -- MPU6050 gz.
+        float yaw = Mathf.Clamp(rb.angularVelocity.y / maxAngularSpeed, -1f, 1f);
+        if (simulateSensorNoise)
+            yaw = Mathf.Clamp(yaw + gyroBias + SampleGaussian(0f, gyroNoiseStdDev), -1f, 1f);
+        sensor.AddObservation(yaw);
 
-        // 2. Target distance, normalised 0-1 (1 obs)
-        float distance = Vector3.Distance(transform.position, targetLocation.position);
-        sensor.AddObservation(Mathf.Clamp01(distance / maxTargetDistance));
-
-        // 3. Linear velocity, local space, normalised (3 obs)
-        Vector3 localVel = transform.InverseTransformDirection(rb.linearVelocity) / maxLinearSpeed;
-        sensor.AddObservation(localVel);
-
-        // 4. Angular velocity (yaw), normalised (1 obs)
-        sensor.AddObservation(Mathf.Clamp(rb.angularVelocity.y / maxAngularSpeed, -1f, 1f));
-
-        // 5. Ultrasonic sensors (2 obs)
+        // 1-2. Ultrasonic (2 obs)
         sensor.AddObservation(ultrasonicFrontReading);
         sensor.AddObservation(ultrasonicRearReading);
 
-        // 6. IR sensors (6 obs)
+        // 3-8. IR (6 obs)
         sensor.AddObservation(irFLReading);
         sensor.AddObservation(irFRReading);
         sensor.AddObservation(irRLReading);
@@ -384,39 +393,28 @@ public class DifferentialCarAgent : Agent
         sensor.AddObservation(irLReading);
         sensor.AddObservation(irRReading);
 
-        // 7. Motor latency state (2 obs).
-        // The rate-limited smoothedLeft/Right are hidden state the policy commits to
-        // but couldn't previously see, making the env partially observable. Feeding
-        // them back in restores the Markov property so the network can anticipate lag.
-        // Already in [-1, 1] (they track clamped action targets), so no scaling needed.
+        // 9-10. Motor latency state (2 obs). Now the ONLY speed cue the agent
+        // has, since linear velocity is gone. Already in [-1, 1].
         sensor.AddObservation(smoothedLeft);
         sensor.AddObservation(smoothedRight);
 
-        // Total = 18
+        // Total = 11
     }
 
-    /// <summary>
-    /// Transforms the policy outputs into physical forces while calculating execution rewards and penalties.
-    /// </summary>
     public override void OnActionReceived(ActionBuffers actions)
     {
         episodeStepCount++;
 
-        // Action space is (throttle, steer) instead of raw (left, right).
-        // Mixing to wheels here means an in-place turn is a single push on the steer
-        // axis rather than a rare anti-correlated pair of two independent Gaussians,
-        // so exploration discovers turning almost immediately. This is also exactly
-        // what a real differential-drive controller does, so it stays sim-to-real safe.
+        // Action space is (throttle, steer), unchanged from the target-seeking
+        // agent so the rover-side controller mapping stays identical.
         float throttle = actions.ContinuousActions[0];
         float steer = actions.ContinuousActions[1];
         float targetLeft = Mathf.Clamp(throttle + steer, -1f, 1f);
         float targetRight = Mathf.Clamp(throttle - steer, -1f, 1f);
 
-        // Rate-limit toward the commanded value instead of applying it instantly
         smoothedLeft = Mathf.MoveTowards(smoothedLeft, targetLeft, motorResponseRate * Time.fixedDeltaTime);
         smoothedRight = Mathf.MoveTowards(smoothedRight, targetRight, motorResponseRate * Time.fixedDeltaTime);
 
-        // Apply physical forces exactly where tires cross the ground
         if (leftWheelPowerPoint != null && rightWheelPowerPoint != null)
         {
             rb.AddForceAtPosition(transform.forward * smoothedLeft * motorForce, leftWheelPowerPoint.position, ForceMode.Acceleration);
@@ -427,28 +425,28 @@ public class DifferentialCarAgent : Agent
             Debug.LogWarning("Wheel anchors are unassigned! Physics cannot execute correctly.");
         }
 
-        // Calculate simplified mixed values to determine general direction for rewards
         float forwardMovement = (smoothedLeft + smoothedRight) / 2f;
 
-        // --- Reward: closing distance to target ---
-        float currentDistance = Vector3.Distance(transform.position, targetLocation.position);
-        float distanceDelta = previousDistanceToTarget - currentDistance;
-        AddReward(distanceDelta * speedRewardMultiplier);
-        previousDistanceToTarget = currentDistance;
+        // --- Reward: MEASURED forward speed ---
+        // This is privileged simulator state, and that is fine: rewards never
+        // run on the rover. Using measured velocity rather than commanded
+        // throttle is deliberate - a car wedged against a wall with the motors
+        // straining reads near zero here and earns nothing, whereas a
+        // commanded-throttle reward would pay it full price for wall-humping.
+        float localForwardVel = transform.InverseTransformDirection(rb.linearVelocity).z;
+        float normalisedForward = Mathf.Clamp(localForwardVel / maxLinearSpeed, -1f, 1f);
+        AddReward(normalisedForward * forwardSpeedReward);
 
-        // --- Reward: reducing heading error toward target ---
-        Vector3 dirToTarget = (targetLocation.position - transform.position).normalized;
-        float currentAngleError = Vector3.Angle(transform.forward, dirToTarget) * Mathf.Deg2Rad;
-        float angleDelta = previousAngleError - currentAngleError;
-        AddReward(angleDelta * headingRewardMultiplier);
-        previousAngleError = currentAngleError;
+        // --- Penalty: idling (default 0; see tooltip before raising) ---
+        if (idlePenalty > 0f && Mathf.Abs(normalisedForward) < idleSpeedThreshold)
+            AddReward(-idlePenalty);
 
-        // --- Penalty: obstacle proximity, graded by the worst-case ultrasonic reading ---
+        // --- Penalty: obstacle proximity, graded by worst-case ultrasonic ---
         float worstUltrasonic = Mathf.Min(ultrasonicFrontReading, ultrasonicRearReading);
         if (worstUltrasonic < 0.5f)
             AddReward(-(0.5f - worstUltrasonic) * obstacleProximityPenalty);
 
-        // --- Penalty: IR near-field trip, scaled by how many sensors fire out of 6 ---
+        // --- Penalty: IR near-field trip, scaled by how many fire out of 6 ---
         int irHits = 0;
         if (irFLReading > 0f) irHits++;
         if (irFRReading > 0f) irHits++;
@@ -465,36 +463,29 @@ public class DifferentialCarAgent : Agent
         prevLeftAction = targetLeft;
         prevRightAction = targetRight;
 
-        // --- Penalty: reversing (now inspector-tunable; shrink/zero for the obstacle phase) ---
+        // --- Penalty: reversing ---
         if (forwardMovement < 0f)
             AddReward(-reversingPenalty);
 
-        // --- Existential penalty ---
-        AddReward(-existentialPenalty);
+        // NOTE: there is deliberately NO existential penalty here. In the
+        // target-seeking agent it pushed the car to finish quickly, and reaching
+        // the target stopped the bleeding. With no success state the only way to
+        // stop it would be to crash, so it would have been a standing incentive
+        // to end the episode. Forward speed pays for progress instead.
 
-        // --- Success: distance-based arrival ---
-        if (currentDistance < successRadius)
-        {
-            EndEpisodeWithOutcome("success", 1.0f, false);
-            return;
-        }
-
-        // --- Timeout: bootstrap instead of treating a time limit as a true terminal ---
-        // A stuck/wedged car in clutter would otherwise never end its episode. We use
-        // EpisodeInterrupted() (not EndEpisode) so PPO bootstraps the value from the
-        // final state rather than assuming the return truly ended at 0.
+        // --- Timeout: bootstrap, and treat it as the SUCCESSFUL outcome ---
         if (maxEpisodeSteps > 0 && episodeStepCount >= maxEpisodeSteps)
         {
-            EndEpisodeWithOutcome("timeout", 0f, true);
+            EndEpisodeWithOutcome("survived", 0f, true);
             return;
         }
     }
 
     /// <summary>
-    /// Single exit point for every episode end. Logs WHY it ended (success / collision /
-    /// timeout) as 0-1 stats that read as rates in TensorBoard, then ends or interrupts.
-    /// Terminal outcomes (success/collision) set a final reward and EndEpisode();
-    /// a timeout is an interruption that bootstraps and gets no terminal reward.
+    /// Single exit point for every episode end. Wonder mode has two outcomes:
+    /// "collision" (true terminal, -1) and "survived" (a time-limit interruption
+    /// that bootstraps and gets no terminal reward). Outcome/Survived is the
+    /// metric to watch in TensorBoard - it should climb toward 1.0.
     /// </summary>
     private void EndEpisodeWithOutcome(string outcome, float finalReward, bool interrupted)
     {
@@ -503,9 +494,8 @@ public class DifferentialCarAgent : Agent
 
         if (statsRecorder != null)
         {
-            statsRecorder.Add("Outcome/Success",   outcome == "success"   ? 1f : 0f);
             statsRecorder.Add("Outcome/Collision", outcome == "collision" ? 1f : 0f);
-            statsRecorder.Add("Outcome/Timeout",   outcome == "timeout"   ? 1f : 0f);
+            statsRecorder.Add("Outcome/Survived",  outcome == "survived"  ? 1f : 0f);
         }
 
         if (interrupted)
@@ -514,9 +504,6 @@ public class DifferentialCarAgent : Agent
             EndEpisode();
     }
 
-    /// <summary>
-    /// Provides manual fallback keyboard and gamepad configurations for testing configurations in the Editor using the Modern Input System.
-    /// </summary>
     public override void Heuristic(in ActionBuffers actionsOut)
     {
         var continuousActionsOut = actionsOut.ContinuousActions;
@@ -524,7 +511,6 @@ public class DifferentialCarAgent : Agent
         float leftMotor = 0f;
         float rightMotor = 0f;
 
-        // --- Controller: Independent Left/Right analog stick tank control ---
         if (Gamepad.current != null)
         {
             float leftStick = Gamepad.current.leftStick.y.ReadValue();
@@ -534,11 +520,10 @@ public class DifferentialCarAgent : Agent
             if (Mathf.Abs(rightStick) > 0.1f) rightMotor = rightStick;
         }
 
-        // --- Keyboard fallback: A/Left Arrow = left tread, D/Right Arrow = right tread ---
         if (Keyboard.current != null)
         {
             bool reverse = Keyboard.current.leftShiftKey.isPressed || Keyboard.current.rightShiftKey.isPressed;
-            
+
             float leftKey = 0f;
             if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed)
                 leftKey = reverse ? -1f : 1f;
@@ -547,15 +532,10 @@ public class DifferentialCarAgent : Agent
             if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed)
                 rightKey = reverse ? -1f : 1f;
 
-            // Use keyboard inputs if gamepad sticks are idle
             if (Mathf.Abs(leftMotor) <= 0.1f && leftKey != 0f) leftMotor = leftKey;
             if (Mathf.Abs(rightMotor) <= 0.1f && rightKey != 0f) rightMotor = rightKey;
         }
 
-        // The controls above still feel like tank sticks, but the policy now expects
-        // (throttle, steer). Convert so manual driving and any recorded demos speak the
-        // same language as OnActionReceived: throttle = average, steer = half-difference.
-        // (A pure spin left+1/right-1 -> throttle 0, steer 1, exactly what we want.)
         float throttle = (leftMotor + rightMotor) / 2f;
         float steer = (leftMotor - rightMotor) / 2f;
 
@@ -563,15 +543,11 @@ public class DifferentialCarAgent : Agent
         continuousActionsOut[1] = Mathf.Clamp(steer, -1f, 1f);
     }
 
-    /// <summary>
-    /// Draws persistent vector lines directly inside Scene/Game views for motors and all 8 sensors.
-    /// </summary>
     private void OnDrawGizmos()
     {
-        // 1. Motor Vector Arrows
-        if (leftWheelPowerPoint != null && rightWheelPowerPoint != null && Application.isPlaying) 
+        if (leftWheelPowerPoint != null && rightWheelPowerPoint != null && Application.isPlaying)
         {
-            float visualScale = 0.1f; 
+            float visualScale = 0.1f;
             Gizmos.color = Color.cyan;
             Vector3 leftStart = leftWheelPowerPoint.position;
             Vector3 leftForceVector = transform.forward * smoothedLeft * motorForce * visualScale;
@@ -585,11 +561,9 @@ public class DifferentialCarAgent : Agent
             DrawGizmoArrowHead(rightStart, rightForceVector);
         }
 
-        // 2. Draw Ultrasonic Fans
         DrawUltrasonicGizmo(ultrasonicFrontOrigin, ultrasonicFrontReading);
         DrawUltrasonicGizmo(ultrasonicRearOrigin, ultrasonicRearReading);
 
-        // 3. Draw IR Sensor Fans
         DrawIRGizmo(irFrontLeft, irFLReading);
         DrawIRGizmo(irFrontRight, irFRReading);
         DrawIRGizmo(irRearLeft, irRLReading);
@@ -601,7 +575,7 @@ public class DifferentialCarAgent : Agent
     private void DrawUltrasonicGizmo(Transform origin, float currentReading)
     {
         if (origin == null) return;
-        
+
         Gizmos.color = Color.Lerp(Color.red, Color.green, currentReading);
         int numRays = 15;
         float totalAngle = 30f;
@@ -630,88 +604,39 @@ public class DifferentialCarAgent : Agent
         }
     }
 
-    /// <summary>
-    /// Helper method generating custom terminal arrows to track positive/negative tire vectors.
-    /// </summary>
     private void DrawGizmoArrowHead(Vector3 pos, Vector3 direction)
     {
-        if (direction.magnitude < 0.05f) return; 
-        
+        if (direction.magnitude < 0.05f) return;
+
         Vector3 lookDir = direction.normalized;
         Vector3 right = Quaternion.LookRotation(lookDir) * Quaternion.Euler(0, 180 + 30, 0) * Vector3.forward;
         Vector3 left = Quaternion.LookRotation(lookDir) * Quaternion.Euler(0, 180 - 30, 0) * Vector3.forward;
-        
+
         Vector3 arrowEnd = pos + direction;
         Gizmos.DrawRay(arrowEnd, right * 0.15f);
         Gizmos.DrawRay(arrowEnd, left * 0.15f);
     }
 
     /// <summary>
-    /// Immediate failure handling when entering physical contact with rigid obstacle/wall layers,
-    /// and immediate success handling when physically contacting the target.
+    /// Collision with obstacle or wall is the only true terminal state in wonder
+    /// mode. All target-collider handling from the parent agent is gone.
     /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
         if (collision.gameObject.CompareTag("obstacle") || collision.gameObject.CompareTag("Wall"))
         {
             EndEpisodeWithOutcome("collision", -1.0f, false);
-            return;
-        }
-
-        if (IsTargetCollider(collision.transform))
-        {
-            HandleTargetReached();
         }
     }
 
-    /// <summary>
-    /// Handles the case where the target's collider is configured as a trigger volume
-    /// rather than a solid collider (common for "goal" objects so the car can pass through it).
-    /// </summary>
-    private void OnTriggerEnter(Collider other)
-    {
-        if (IsTargetCollider(other.transform))
-        {
-            HandleTargetReached();
-        }
-    }
-
-    /// <summary>
-    /// Identifies whether a given transform corresponds to the current target,
-    /// either by direct reference or by a "Target" tag on the object/its parent.
-    /// </summary>
-    private bool IsTargetCollider(Transform t)
-    {
-        if (targetLocation == null) return false;
-        return t == targetLocation || t.IsChildOf(targetLocation) || t.CompareTag("Target");
-    }
-
-    /// <summary>
-    /// Shared success path for reaching the target, whether detected via distance
-    /// threshold (OnActionReceived) or physical contact (OnCollisionEnter/OnTriggerEnter).
-    /// </summary>
-    private void HandleTargetReached()
-    {
-        EndEpisodeWithOutcome("success", 1.0f, false);
-    }
-
-    /// <summary>
-    /// Measures the horizontal footprint radius of an object using its collider bounds.
-    /// </summary>
     private float GetObjectRadius(Transform t)
     {
         Collider col = t.GetComponent<Collider>();
         if (col != null)
-        {
-            // Returns the largest horizontal half-size (extents) of the bounding box
             return Mathf.Max(col.bounds.extents.x, col.bounds.extents.z);
-        }
-        return 0.5f; // Fallback radius if no collider is attached
+        return 0.5f;
     }
 
-    /// <summary>
-    /// Generates a random coordinate vector inside the boundaries of the designated spawn area.
-    /// </summary>
     private Vector3 GetRandomPointInSpawnArea()
     {
         if (spawnArea == null) return transform.position;
@@ -722,23 +647,18 @@ public class DifferentialCarAgent : Agent
     }
 
     /// <summary>
-    /// Randomizes target and furniture locations while enforcing safe clearance spaces using
-    /// distance validation. Only <paramref name="activeCount"/> furniture pieces are placed and
-    /// left active this episode (curriculum-driven); the rest are disabled so their colliders
-    /// neither trip sensors nor cause phantom collisions.
+    /// Places activeCount furniture pieces with clearance from each other.
+    /// Unlike the target-seeking version there is no target to clear around, and
+    /// no car clearance check here either - the car is placed afterwards by
+    /// PlaceCar(), which does its own clearance test against what landed.
     /// </summary>
     private void RandomizeEnvironment(int activeCount)
     {
-        // Always place target first
-        MoveTargetToRandomPosition();
-
         if (furnitureList == null) return;
 
         int total = furnitureList.Count;
         activeCount = Mathf.Clamp(activeCount, 0, total);
 
-        // Shuffle the index order (Fisher-Yates) so which pieces are active varies
-        // per episode rather than always using the first N in the list.
         List<int> order = new List<int>(total);
         for (int i = 0; i < total; i++) order.Add(i);
         for (int i = total - 1; i > 0; i--)
@@ -749,8 +669,6 @@ public class DifferentialCarAgent : Agent
             order[j] = tmp;
         }
 
-        // Track pieces actually placed this episode so clearance checks only ever run
-        // against live, current-position obstacles (not stale/inactive ones).
         List<Transform> placed = new List<Transform>(activeCount);
 
         for (int k = 0; k < total; k++)
@@ -758,7 +676,6 @@ public class DifferentialCarAgent : Agent
             Transform item = furnitureList[order[k]];
             if (item == null) continue;
 
-            // Anything beyond the active budget is switched off for this episode.
             if (k >= activeCount)
             {
                 item.gameObject.SetActive(false);
@@ -772,27 +689,15 @@ public class DifferentialCarAgent : Agent
             bool validPosition = false;
             int attempts = 0;
 
-            // Re-roll loop: drops a point and checks clearance criteria up to 100 times
             while (!validPosition && attempts < 100)
             {
                 attempts++;
                 potentialPosition = GetRandomPointInSpawnArea();
 
-                // 1. Check distance to target cube (accounting for item size)
-                if (Vector3.Distance(potentialPosition, targetLocation.position) < (targetBuffer + itemRadius))
-                    continue;
-
-                // 2. Check distance to car spawn point (accounting for item size)
-                if (Vector3.Distance(potentialPosition, startingPosition) < (carBuffer + itemRadius))
-                    continue;
-
-                // 3. Check distance to the pieces already placed this episode
                 bool tooCloseToOthers = false;
                 foreach (var otherItem in placed)
                 {
-                    float otherRadius = GetObjectRadius(otherItem);
-                    float combinedBuffer = itemRadius + otherRadius;
-
+                    float combinedBuffer = itemRadius + GetObjectRadius(otherItem);
                     if (Vector3.Distance(potentialPosition, otherItem.position) < combinedBuffer)
                     {
                         tooCloseToOthers = true;
@@ -812,8 +717,6 @@ public class DifferentialCarAgent : Agent
             }
             else
             {
-                // Couldn't find a clear spot in 100 tries. Disable rather than leave the
-                // piece at a stale/overlapping placement from a previous episode.
                 item.gameObject.SetActive(false);
             }
         }

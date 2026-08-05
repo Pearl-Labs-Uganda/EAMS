@@ -464,7 +464,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3a5c9d521e5ef4759a8246a07d52221e, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: 
+  m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.DecisionRequester
   DecisionPeriod: 5
   DecisionStep: 0
   TakeActionsBetweenDecisions: 1
@@ -477,14 +477,23 @@ MonoBehaviour:
   m_GameObject: {fileID: 295285873}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0eec4165564e1c9468df1bb682c59d65, type: 3}
+  m_Script: {fileID: 11500000, guid: d0b6bceee8353364686f8959a742efdb, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: 
+  m_EditorClassIdentifier: Assembly-CSharp::WonderCarAgent
   agentParameters:
     maxStep: 0
   hasUpgradedFromAgentParameters: 1
   MaxStep: 0
   furnitureList:
+  - {fileID: 2792154237492810530}
+  - {fileID: 8792199607731587863}
+  - {fileID: 6798089130245992303}
+  - {fileID: 3993096744178766255}
+  - {fileID: 6600525221968133311}
+  - {fileID: 72627533047712038}
+  - {fileID: 3277661844671121205}
+  - {fileID: 1774153041939908658}
+  - {fileID: 2824109645588108618}
   - {fileID: 3034893925269300125}
   - {fileID: 3789725560036143366}
   - {fileID: 6544011077821108665}
@@ -506,19 +515,12 @@ MonoBehaviour:
   - {fileID: 4944259723609326752}
   - {fileID: 2796583851119075586}
   - {fileID: 4360931804556480585}
-  - {fileID: 72627533047712038}
-  - {fileID: 6600525221968133311}
-  - {fileID: 3277661844671121205}
-  - {fileID: 1774153041939908658}
-  - {fileID: 2824109645588108618}
-  - {fileID: 3993096744178766255}
-  - {fileID: 6798089130245992303}
-  - {fileID: 8792199607731587863}
-  - {fileID: 2792154237492810530}
   - {fileID: 14645339559554776}
   - {fileID: 3848281318455935000}
   - {fileID: 9042046990403612322}
   - {fileID: 5087987120930406011}
+  - {fileID: 5013386657837718603}
+  - {fileID: 5805175650485847664}
   - {fileID: 7657407625065069027}
   - {fileID: 5256159000374470507}
   - {fileID: 2536896994072378492}
@@ -527,14 +529,10 @@ MonoBehaviour:
   - {fileID: 9036554462083154115}
   - {fileID: 2246256062654523820}
   - {fileID: 6507363303038866881}
-  - {fileID: 5013386657837718603}
-  - {fileID: 5805175650485847664}
-  targetBuffer: 2
   carBuffer: 2
-  targetLocation: {fileID: 297205501}
-  spawnArea: {fileID: 1622016704}
-  successRadius: 0.25
-  maxEpisodeSteps: 2000
+  spawnArea: {fileID: 0}
+  randomizeCarSpawn: 1
+  maxEpisodeSteps: 1500
   leftWheelPowerPoint: {fileID: 1491264447}
   rightWheelPowerPoint: {fileID: 1138559035}
   motorForce: 20
@@ -549,22 +547,23 @@ MonoBehaviour:
   irLeft: {fileID: 1050018734}
   irRight: {fileID: 1617007079}
   irRange: 2
-  maxTargetDistance: 20
   maxLinearSpeed: 3
   maxAngularSpeed: 6
-  simulateSensorNoise: 0
+  simulateSensorNoise: 1
   ultrasonicNoiseStdDev: 0.03
   irNoiseFlipChance: 0.04
-  randomizePhysicsPerEpisode: 0
+  gyroNoiseStdDev: 0.02
+  gyroBiasRange: 0.03
+  randomizePhysicsPerEpisode: 1
   massMultiplierRange: {x: 0.85, y: 1.15}
   motorForceMultiplierRange: {x: 0.85, y: 1.15}
-  speedRewardMultiplier: 1
+  forwardSpeedReward: 0.005
   obstacleProximityPenalty: 0.01
   irPenalty: 0.02
   actionJitterPenalty: 0.001
-  existentialPenalty: 0.001
-  headingRewardMultiplier: 1
-  reversingPenalty: 0.005
+  reversingPenalty: 0.002
+  idlePenalty: 0
+  idleSpeedThreshold: 0.05
 --- !u!114 &295285883
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -576,9 +575,9 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5d1c4e0b1822b495aa52bc52839ecb30, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: 
+  m_EditorClassIdentifier: Unity.ML-Agents::Unity.MLAgents.Policies.BehaviorParameters
   m_BrainParameters:
-    VectorObservationSize: 18
+    VectorObservationSize: 11
     NumStackedVectorObservations: 1
     m_ActionSpec:
       m_NumContinuousActions: 2
@@ -587,10 +586,10 @@ MonoBehaviour:
     VectorActionDescriptions: []
     VectorActionSpaceType: 1
     hasUpgradedBrainParametersWithActionSpec: 1
-  m_Model: {fileID: 5022602860645237092, guid: 094935a6ec9d496f6994ebf2c192f37c, type: 3}
+  m_Model: {fileID: 0}
   m_InferenceDevice: 0
-  m_BehaviorType: 2
-  m_BehaviorName: DifferentialCarAgent
+  m_BehaviorType: 0
+  m_BehaviorName: WonderCarAgent
   TeamId: 0
   m_UseChildSensors: 1
   m_UseChildActuators: 1
