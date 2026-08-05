@@ -138,7 +138,7 @@ be developed and validated **before** the physical sensors are wired in.
 These are the things most likely to trip up a new contributor.
 
 1. **Docs straddle Pi and Jetson.** The runtime code (`config.py`, `hardware.py`,
-   `requirements.txt`) and `rc-car-deployment.md` are Jetson. The
+   `rccar_requirements.txt`) and `rc-car-deployment.md` are Jetson. The
    *progress report* still narrates the earlier **Pi/pigpio** build (user
    `eams-pi`, BCM numbering, USB-gadget link). The migration happened; not all
    prose caught up. **`config.py` is authoritative for pins.**
@@ -227,7 +227,7 @@ rccar/
     ├── rover-wonder/           # Unity project, no-target transfer test
     └── training/               # ML-Agents side
         ├── car_config_*.yaml
-        ├── requirements.txt
+        ├── traning_requirements.txt
         └── results/            # .onnx + run metadata committed; .pt and
                                 # tfevents gitignored (regenerable)
 ```

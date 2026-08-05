@@ -20,10 +20,10 @@
 >   `rc-car-deployment.md`.
 > - **Non-goals (§13):** "no autonomy / obstacle avoidance / path planning"
 >   described *this manual-control phase only*. **Autonomy is now an explicit
->   project goal** (natural-language navigation) — see `project-brief.md` for the
+>   project goal** (natural-language navigation) — see `rc-car-project-brief.md` for the
 >   phased roadmap and the ML-Agents work.
 >
-> For current orientation read **`project-brief.md`**; for history read
+> For current orientation read **`rc-car-project-brief.md`**; for history read
 > **`rc-car-progress-report.md`** (§8 onward covers the Jetson migration).
 > The §1 hardware inventory, §2 thermal-headroom constraint, and §5 safety-layer
 > spec below are still valid and remain the hard requirements.
@@ -270,7 +270,7 @@ rsync -avz --delete ./rccar/ pi@raspberrypi.local:/home/pi/rccar/
 ssh pi@raspberrypi.local
 cd ~/rccar
 python3 -m venv --system-site-packages .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r rccar_requirements.txt
 ```
 `--system-site-packages` matters — it lets the venv see the apt-installed `pigpio`.
 

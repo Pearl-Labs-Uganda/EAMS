@@ -16,7 +16,7 @@
 > Kept for provenance (the Pi USB-gadget link, addresses `10.55.0.1/2`). If a
 > wired point-to-point link to the Jetson is wanted, it needs a separate,
 > Jetson-specific write-up — **not yet done** (open item). Current orientation:
-> `project-brief.md`; history: `rc-car-progress-report.md` §8.
+> `rc-car-project-brief.md`; history: `rc-car-progress-report.md` §8.
 
 ---
 

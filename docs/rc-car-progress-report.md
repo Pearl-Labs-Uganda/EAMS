@@ -7,7 +7,7 @@ This report describes exactly what we have done so far, in order, so anyone can 
 
 **Status (20 July):** The car has been driven under power with this code. The MPU6050 IMU has **not** been installed — driving is done with the stall guard disabled (`STALL_GUARD_ENABLED = False`), which is now the accepted operating configuration, not a temporary state. See §7. The pin assignments in `config.py` are authoritative and supersede the original requirements table.
 
-> **Update (27 July 2026):** §1–§7 below describe the original **Raspberry Pi Zero 2 W / pigpio** build. The project has since **migrated to the NVIDIA Jetson Orin Nano** and added two simulators and a documentation system — see the new **§8** for current state. Where the Pi-era sections conflict with §8, the runtime code, or `project-brief.md`, the later material wins. `config.py` remains authoritative for pins (now Jetson BOARD numbering).
+> **Update (27 July 2026):** §1–§7 below describe the original **Raspberry Pi Zero 2 W / pigpio** build. The project has since **migrated to the NVIDIA Jetson Orin Nano** and added two simulators and a documentation system — see the new **§8** for current state. Where the Pi-era sections conflict with §8, the runtime code, or `rc-car-project-brief.md`, the later material wins. `config.py` remains authoritative for pins (now Jetson BOARD numbering).
 
 ---
 
